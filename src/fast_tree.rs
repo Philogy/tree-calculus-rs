@@ -1,5 +1,3 @@
-use ahash::RandomState;
-use std::collections::HashMap;
 use std::fmt;
 use std::num::NonZero;
 
@@ -139,11 +137,8 @@ impl TreeEvalFrame {
     }
 }
 
-const INDEX_THRESHOLD: usize = 128;
-
 #[derive(Debug)]
 pub struct Trees {
-    indexed: HashMap<StoredTree, TreeIndex, RandomState>,
     trees: Vec<StoredTree>,
     eval_stack: Vec<TreeEvalFrame>,
 }
@@ -156,7 +151,6 @@ impl Trees {
 
     pub fn new(tree_capacity: usize) -> Self {
         let mut trees = Self {
-            indexed: HashMap::with_capacity_and_hasher(INDEX_THRESHOLD * 2, Default::default()),
             trees: Vec::with_capacity(tree_capacity),
             eval_stack: Vec::with_capacity(256),
         };
@@ -187,9 +181,6 @@ impl Trees {
         let tree = tree.into();
         let idx = Self::as_tree_index(self.trees.len());
         self.trees.push(tree);
-        if self.indexed.len() < INDEX_THRESHOLD {
-            self.indexed.insert(tree, idx);
-        }
         idx
     }
 
@@ -198,10 +189,7 @@ impl Trees {
     }
 
     pub fn insert(&mut self, tree: Tree) -> TreeIndex {
-        match self.indexed.get(&tree.into()) {
-            Some(idx) => *idx,
-            None => self.push_and_index(tree),
-        }
+        self.push_and_index(tree)
     }
 
     pub fn index(&self, idx: TreeIndex) -> Tree {
@@ -319,7 +307,6 @@ impl Trees {
             "self.eval_stack.capacity(): {:?}",
             self.eval_stack.capacity()
         );
-        println!("self.indexed.len(): {:?}", self.indexed.len());
     }
 }
 
