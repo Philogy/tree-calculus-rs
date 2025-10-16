@@ -1,3 +1,5 @@
+use ahash::RandomState;
+use std::collections::HashMap;
 use std::fmt;
 use std::num::NonZero;
 
@@ -6,8 +8,13 @@ pub struct TreeIndex(NonZero<u32>);
 
 impl TreeIndex {
     #[inline]
-    pub fn idx(&self) -> usize {
+    pub const fn idx(&self) -> usize {
         (self.0.get() - 1) as usize
+    }
+
+    #[inline]
+    const fn from_idx(i: usize) -> Self {
+        TreeIndex(unsafe { NonZero::new_unchecked(i as u32 + 1) })
     }
 }
 
@@ -108,29 +115,43 @@ impl Tree {
     }
 }
 
+type EvalInput = (TreeIndex, TreeIndex);
+
 #[derive(Debug)]
 struct TreeEvalFrame {
+    input_to_cache: EvalInput,
     fork_partial: Option<TreeIndex>,
     duplicate_end: Option<TreeIndex>,
 }
 
 impl TreeEvalFrame {
-    fn duplicate_middle_eval(y: TreeIndex, b: TreeIndex) -> Self {
+    fn just_cache(input_to_cache: EvalInput) -> Self {
+        Self {
+            input_to_cache,
+            fork_partial: None,
+            duplicate_end: None,
+        }
+    }
+
+    fn duplicate_middle_eval(input_to_cache: EvalInput, y: TreeIndex, b: TreeIndex) -> Self {
         TreeEvalFrame {
+            input_to_cache,
             fork_partial: Some(y),
             duplicate_end: Some(b),
         }
     }
 
-    fn duplciate_end_eval(xb: TreeIndex) -> Self {
+    fn duplciate_end_eval(input_to_cache: EvalInput, xb: TreeIndex) -> Self {
         TreeEvalFrame {
+            input_to_cache,
             fork_partial: None,
             duplicate_end: Some(xb),
         }
     }
 
-    fn fork_partial(v: TreeIndex) -> Self {
+    fn fork_partial(input_to_cache: EvalInput, v: TreeIndex) -> Self {
         TreeEvalFrame {
+            input_to_cache,
             fork_partial: Some(v),
             duplicate_end: None,
         }
@@ -139,18 +160,25 @@ impl TreeEvalFrame {
 
 #[derive(Debug)]
 pub struct Trees {
+    indexed_trees: HashMap<StoredTree, TreeIndex, RandomState>,
+    cached_applications: HashMap<(TreeIndex, TreeIndex), TreeIndex, RandomState>,
     trees: Vec<StoredTree>,
     eval_stack: Vec<TreeEvalFrame>,
 }
 
 impl Trees {
-    pub const LEAF: TreeIndex = Self::as_tree_index(0);
-    pub const STEM_LEAF: TreeIndex = Self::as_tree_index(1);
-    pub const FORK_LEAF_LEAF: TreeIndex = Self::as_tree_index(2);
-    pub const IDENTITY: TreeIndex = Self::as_tree_index(3);
+    pub const LEAF: TreeIndex = TreeIndex::from_idx(0);
+    pub const STEM_LEAF: TreeIndex = TreeIndex::from_idx(1);
+    pub const FORK_LEAF_LEAF: TreeIndex = TreeIndex::from_idx(2);
+    pub const IDENTITY: TreeIndex = TreeIndex::from_idx(3);
 
-    pub fn new(tree_capacity: usize) -> Self {
+    pub fn new(tree_capacity: usize, application_cache_size: usize) -> Self {
         let mut trees = Self {
+            indexed_trees: HashMap::with_capacity_and_hasher(tree_capacity, Default::default()),
+            cached_applications: HashMap::with_capacity_and_hasher(
+                application_cache_size,
+                Default::default(),
+            ),
             trees: Vec::with_capacity(tree_capacity),
             eval_stack: Vec::with_capacity(256),
         };
@@ -179,17 +207,17 @@ impl Trees {
 
     fn push_and_index(&mut self, tree: Tree) -> TreeIndex {
         let tree = tree.into();
-        let idx = Self::as_tree_index(self.trees.len());
+        let idx = TreeIndex::from_idx(self.trees.len());
         self.trees.push(tree);
+        self.indexed_trees.insert(tree, idx);
         idx
     }
 
-    const fn as_tree_index(i: usize) -> TreeIndex {
-        TreeIndex(NonZero::new(i as u32 + 1).unwrap())
-    }
-
     pub fn insert(&mut self, tree: Tree) -> TreeIndex {
-        self.push_and_index(tree)
+        match self.indexed_trees.get(&tree.into()) {
+            Some(idx) => *idx,
+            None => self.push_and_index(tree),
+        }
     }
 
     pub fn index(&self, idx: TreeIndex) -> Tree {
@@ -199,7 +227,7 @@ impl Trees {
         stored.into()
     }
 
-    pub fn count_non_garbage(&self, alive: impl Iterator<Item = TreeIndex>) -> u32 {
+    pub fn count_non_garbage(&self, alive: impl Iterator<Item = TreeIndex>) -> usize {
         let mut tree_alive = vec![false; self.trees.len()];
         let mut todo_stack: Vec<_> = alive.into_iter().collect();
 
@@ -214,7 +242,7 @@ impl Trees {
             }
         }
 
-        tree_alive.into_iter().filter(|b| *b).count() as u32
+        tree_alive.into_iter().filter(|b| *b).count()
     }
 
     pub fn parse_nat(&self, start: TreeIndex) -> Result<u64, TreeIndex> {
@@ -236,7 +264,7 @@ impl Trees {
     pub fn tree_apply(&mut self, mut a: TreeIndex, mut b: TreeIndex) -> TreeIndex {
         self.eval_stack.clear();
 
-        loop {
+        'apply: loop {
             let result = match self.index(a) {
                 // △ b = △ b
                 Tree::Leaf => self.insert(Tree::Stem(b)),
@@ -247,52 +275,79 @@ impl Trees {
                     (Tree::Leaf, a) => a,
                     // △ (△ x) y b = x b (y b)
                     (Tree::Stem(x), y) => {
-                        let frame = TreeEvalFrame::duplicate_middle_eval(y, b);
-                        self.eval_stack.push(frame);
-                        a = x; // Evaluate `x b`, push `(_ (y b))`.
-                        continue;
+                        let Some(&result) = self.cached_applications.get(&(a, b)) else {
+                            let frame = TreeEvalFrame::duplicate_middle_eval((a, b), y, b);
+                            self.eval_stack.push(frame);
+                            a = x; // Evaluate `x b`, push `(_ (y b))`.
+                            continue;
+                        };
+                        result
                     }
                     // △ (△ x y) z w => (x | y w.stem | z w.lhs w.rhs)
                     (Tree::Fork(a1, a2), a3) => match self.index(b) {
                         Tree::Leaf => a1,
                         Tree::Stem(u) => {
-                            (a, b) = (a2, u); // Evaluate `a2 u`.
-                            continue;
+                            let Some(&result) = self.cached_applications.get(&(a, b)) else {
+                                self.eval_stack.push(TreeEvalFrame::just_cache((a, b)));
+                                (a, b) = (a2, u); // Evaluate `a2 u`.
+                                continue;
+                            };
+                            result
                         }
                         Tree::Fork(u, v) => {
-                            self.eval_stack.push(TreeEvalFrame::fork_partial(v));
-                            (a, b) = (a3, u); // Evaluate `a3 u`, push `_ v`
-                            continue;
+                            let Some(&result) = self.cached_applications.get(&(a, b)) else {
+                                self.eval_stack.push(TreeEvalFrame::fork_partial((a, b), v));
+                                (a, b) = (a3, u); // Evaluate `a3 u`, push `_ v`
+                                continue;
+                            };
+                            result
                         }
                     },
                 },
             };
 
-            match self.eval_stack.pop() {
-                None => return result,
-                Some(TreeEvalFrame {
-                    fork_partial: Some(v),
-                    duplicate_end: None,
-                }) => {
-                    (a, b) = (result, v); // Complete `(a3 u) v`.
-                    continue;
+            'unwind_stack: loop {
+                match self.eval_stack.pop() {
+                    None => return result,
+                    Some(TreeEvalFrame {
+                        input_to_cache,
+                        fork_partial: Some(v),
+                        duplicate_end: None,
+                    }) => {
+                        self.eval_stack
+                            .push(TreeEvalFrame::just_cache(input_to_cache));
+                        (a, b) = (result, v); // Complete `(a3 u) v`.
+                        continue 'apply;
+                    }
+                    Some(TreeEvalFrame {
+                        input_to_cache,
+                        fork_partial: Some(y),
+                        duplicate_end: Some(stack_b),
+                    }) => {
+                        (a, b) = (y, stack_b); // Eval `y b`, push `(_ (y b))`
+                        self.eval_stack
+                            .push(TreeEvalFrame::duplciate_end_eval(input_to_cache, result));
+                        continue 'apply;
+                    }
+                    Some(TreeEvalFrame {
+                        input_to_cache,
+                        fork_partial: None,
+                        duplicate_end: Some(xb),
+                    }) => {
+                        self.eval_stack
+                            .push(TreeEvalFrame::just_cache(input_to_cache));
+                        (a, b) = (xb, result); // Evaluated `y b`, evaluate `x b (y b)`.
+                        continue 'apply;
+                    }
+                    Some(TreeEvalFrame {
+                        input_to_cache,
+                        fork_partial: None,
+                        duplicate_end: None,
+                    }) => {
+                        self.cached_applications.insert(input_to_cache, result);
+                        continue 'unwind_stack;
+                    }
                 }
-                Some(TreeEvalFrame {
-                    fork_partial: Some(y),
-                    duplicate_end: Some(stack_b),
-                }) => {
-                    (a, b) = (y, stack_b); // Eval `y b`, push `(_ (y b))`
-                    self.eval_stack
-                        .push(TreeEvalFrame::duplciate_end_eval(result));
-                    continue;
-                }
-                Some(TreeEvalFrame {
-                    fork_partial: None,
-                    duplicate_end: Some(xb),
-                }) => {
-                    (a, b) = (xb, result); // Evaluated `y b`, evaluate `x b (y b)`.
-                }
-                Some(invalid_frame) => unreachable!("invalid frame: {:?}", invalid_frame),
             }
         }
     }
@@ -303,10 +358,19 @@ impl Trees {
 
     pub fn report_final_usage(&self) {
         println!("self.trees.len(): {:?}", self.trees.len());
+        println!("self.indexed_trees.len(): {:?}", self.indexed_trees.len());
+        println!(
+            "self.cached_applications.len(): {:?}",
+            self.cached_applications.len()
+        );
         println!(
             "self.eval_stack.capacity(): {:?}",
             self.eval_stack.capacity()
         );
+    }
+
+    pub fn total_trees_stored(&self) -> usize {
+        self.trees.len()
     }
 }
 
