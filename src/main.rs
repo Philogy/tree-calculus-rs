@@ -148,10 +148,10 @@ fn main() {
         }
     }
 
+    println!("\n==== TREE STATS ====");
     trees.report_final_usage();
     let non_garbage = trees.count_non_garbage(namespace.iter_trees());
     let total_trees = trees.total_trees_stored();
-
     println!(
         "non garbage: {} ({:.2}%)",
         non_garbage,
