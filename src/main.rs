@@ -1,5 +1,7 @@
 use tree_calculus::{
-    Declaration, Lexer, Span, Tree, TreeNamespace, compile_tree_expr, parse_declarations,
+    Declaration, Lexer, Span, TreeNamespace, compile_tree_expr,
+    fast_tree::{Tree, TreeIndex, Trees},
+    parse_declarations,
 };
 
 fn pretty_err<'src>(source: &'src str, reason: String, span: Span, with_line_number: bool) {
@@ -39,24 +41,24 @@ fn pretty_err<'src>(source: &'src str, reason: String, span: Span, with_line_num
     eprintln!("{}", reason);
 }
 
-fn visualize_tree(buf: &mut String, name: &str, tree: &Tree) {
+fn visualize_tree(buf: &mut String, trees: &Trees, name: &str, tree: TreeIndex) {
     use std::fmt::Write;
     buf.clear();
 
-    fn visualize_tree_inner(buf: &mut String, tree: &Tree, id: u64) -> u64 {
-        match tree {
+    fn visualize_tree_inner(buf: &mut String, trees: &Trees, tree: TreeIndex, id: u64) -> u64 {
+        match trees.index(tree) {
             Tree::Leaf => id + 1,
             Tree::Stem(value) => {
                 let next_id = id + 1;
                 write!(buf, "n{}->n{};", id, next_id).unwrap();
-                visualize_tree_inner(buf, value, next_id)
+                visualize_tree_inner(buf, trees, value, next_id)
             }
             Tree::Fork(lhs, rhs) => {
                 let next_id = id + 1;
                 write!(buf, "n{}->n{};", id, next_id).unwrap();
-                let next_id = visualize_tree_inner(buf, lhs, next_id);
+                let next_id = visualize_tree_inner(buf, trees, lhs, next_id);
                 write!(buf, "n{}->n{};", id, next_id).unwrap();
-                let next_id = visualize_tree_inner(buf, rhs, next_id);
+                let next_id = visualize_tree_inner(buf, trees, rhs, next_id);
                 next_id
             }
         }
@@ -71,7 +73,7 @@ fn visualize_tree(buf: &mut String, name: &str, tree: &Tree) {
         name
     )
     .unwrap();
-    visualize_tree_inner(buf, tree, 0);
+    visualize_tree_inner(buf, trees, tree, 0);
     write!(buf, "}}").unwrap();
 }
 
@@ -91,13 +93,14 @@ fn main() {
     let mut namespace = TreeNamespace::new();
 
     let mut buf = String::with_capacity(4096 * 8);
+    let mut trees = Trees::new(100_000_000, 256);
 
     for decl in decls.iter() {
         match decl {
             Declaration::TreeDecl(decl) => {
-                let compiled = compile_tree_expr(&decl.expr);
+                let compiled = compile_tree_expr(&mut trees, &decl.expr);
                 if let Err((reason, span)) =
-                    namespace.define_new_tree(decl.name, decl.span.clone(), &compiled)
+                    namespace.define_new_tree(&mut trees, decl.name, decl.span.clone(), &compiled)
                 {
                     pretty_err(&source, reason, span, true);
                     std::process::exit(1);
@@ -114,26 +117,36 @@ fn main() {
         }
     }
 
+    // dbg!(&trees);
+
     for decl in decls.iter() {
         match decl {
             Declaration::TreeDecl(_) => {}
             Declaration::Visualize((name, _)) => {
                 let tree = namespace.get(name).expect("errors processed");
-                visualize_tree(&mut buf, name, tree);
+                visualize_tree(&mut buf, &trees, name, tree);
 
                 std::fs::write(format!("trees/tree-{}.dot", name), &buf).unwrap();
             }
             Declaration::NumEval((name, _)) => {
-                let tree = namespace.get(name).expect("errors processed?");
-                match tree.parse_nat() {
+                let tree_idx = namespace.get(name).expect("errors processed?");
+                match trees.parse_nat(tree_idx) {
                     Ok(x) => println!("{name} => {x}"),
-                    Err(tree) => println!("{name} => (not nat: {})", tree),
+                    Err(tree_idx) => {
+                        println!(
+                            "{name} => (not nat: {})",
+                            trees.as_ref(trees.index(tree_idx))
+                        )
+                    }
                 }
             }
             Declaration::Show((name, _)) => {
-                let tree = namespace.get(name).expect("errors processed?");
-                println!("{} = {}", name, tree);
+                let tree_idx = namespace.get(name).expect("errors processed?");
+                let tree = trees.index(tree_idx);
+                println!("{} = {}", name, trees.as_ref(tree));
             }
         }
     }
+
+    println!("final lengths: {:?}", trees.report_final_usage());
 }

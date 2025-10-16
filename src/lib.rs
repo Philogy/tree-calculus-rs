@@ -1,4 +1,5 @@
 mod compiler;
+pub mod fast_tree;
 mod lexer;
 mod parser;
 mod tree;

@@ -1,5 +1,5 @@
 use crate::lexer::{Lexer, Span, Token};
-use std::{fmt, ptr::fn_addr_eq};
+use std::fmt;
 
 #[derive(Debug, Clone)]
 pub enum TreeExpr<'src> {
