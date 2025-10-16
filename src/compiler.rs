@@ -137,6 +137,10 @@ impl<'src> TreeNamespace<'src> {
         }
     }
 
+    pub fn iter_trees(&self) -> impl Iterator<Item = TreeIndex> {
+        self.trees.iter().map(|(_, (tree, _))| *tree)
+    }
+
     pub fn eval_tree(
         &self,
         trees: &mut Trees,

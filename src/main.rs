@@ -93,7 +93,7 @@ fn main() {
     let mut namespace = TreeNamespace::new();
 
     let mut buf = String::with_capacity(4096 * 8);
-    let mut trees = Trees::new(100_000_000, 256);
+    let mut trees = Trees::new(200_000);
 
     for decl in decls.iter() {
         match decl {
@@ -148,5 +148,9 @@ fn main() {
         }
     }
 
-    println!("final lengths: {:?}", trees.report_final_usage());
+    trees.report_final_usage();
+    println!(
+        "non garbage: {}",
+        trees.count_non_garbage(namespace.iter_trees())
+    );
 }
