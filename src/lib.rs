@@ -9,4 +9,4 @@ pub use parser::{
     Error as ParserError, TreeDecl, TreeExpr, TreeLambda, parse_decl, parse_declarations,
 };
 
-pub use tree::{Tree, tree_apply};
+pub use tree::*;

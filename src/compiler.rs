@@ -139,24 +139,48 @@ impl<'src> TreeNamespace<'src> {
     }
 
     pub fn eval_tree(&self, tree: &CompiledTree<'src>) -> Result<Rc<Tree>, ParserError> {
-        match tree {
-            CompiledTree::NameRef((name, span)) => self
-                .trees
-                .get(name)
-                .map(|(t, _)| t.clone())
-                .ok_or_else(|| (format!("Undefined tree {:?}", name), span.clone())),
-            CompiledTree::Tree(tree) => Ok(tree.clone()),
-            CompiledTree::Application(sub_trees) => sub_trees
-                .into_iter()
-                .try_fold(None, |acc_tree, tree| {
-                    let res_tree = match acc_tree {
-                        None => self.eval_tree(tree)?,
-                        Some(acc_tree) => tree_apply(&acc_tree, &self.eval_tree(tree)?),
-                    };
-                    Ok(Some(res_tree))
-                })
-                .map(|tree| tree.expect("empty tree?")),
+        let mut application_frames = Vec::with_capacity(256);
+        application_frames.push((None, std::slice::from_ref(tree)));
+
+        'process_apply_frames: while let Some((mut acc, remaining_trees)) = application_frames.pop()
+        {
+            for (i, tree) in remaining_trees.into_iter().enumerate() {
+                let evaluated = match tree {
+                    CompiledTree::NameRef((name, span)) => self
+                        .trees
+                        .get(name)
+                        .map(|(t, _)| t.clone())
+                        .ok_or_else(|| (format!("Undefined tree {:?}", name), span.clone()))?,
+                    CompiledTree::Tree(tree) => tree.clone(),
+                    CompiledTree::Application(sub_trees) => {
+                        application_frames.push((acc, &remaining_trees[i + 1..]));
+                        application_frames.push((None, &sub_trees));
+                        continue 'process_apply_frames;
+                    }
+                };
+                acc = Some(match acc {
+                    None => evaluated,
+                    Some(acc) => tree_apply(acc, evaluated),
+                });
+            }
+
+            let acc = acc.expect("Empty application list?");
+
+            match application_frames.pop() {
+                Some((acc_below, remaining_trees_below)) => {
+                    let acc = Some(match acc_below {
+                        None => acc,
+                        Some(acc_below) => tree_apply(acc_below, acc),
+                    });
+                    application_frames.push((acc, remaining_trees_below));
+                }
+                None => {
+                    return Ok(acc);
+                }
+            }
         }
+
+        unreachable!("stack ran out?")
     }
 
     pub fn define_new_tree(

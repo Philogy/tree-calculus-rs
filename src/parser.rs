@@ -115,6 +115,10 @@ fn parse_tree_expr<'src>(
             }
             (Token::Close, _) if inside_paren => break,
             (Token::Newline, _) if !inside_paren && !trees.is_empty() => break,
+            // (Token::Newline, _) if !inside_paren && trees.is_empty() => {
+            //     lexer.next();
+            //     continue;
+            // }
             (Token::Newline, _) if inside_paren => {
                 lexer.next();
                 continue;
@@ -122,7 +126,10 @@ fn parse_tree_expr<'src>(
             (Token::Eof, _) => break,
             (tok, span) => {
                 return Err((
-                    format!("Unexpected token {:?}, expected △ / (tree) / name", tok),
+                    format!(
+                        "Unexpected token <{:?}>, expected △ / (tree) / name ({})",
+                        tok, inside_paren
+                    ),
                     span,
                 ));
             }
