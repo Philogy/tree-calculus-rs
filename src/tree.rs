@@ -28,6 +28,22 @@ impl Tree {
             Self::Fork(a, b) => Some(a.as_ref()).into_iter().chain(Some(b.as_ref())),
         }
     }
+
+    pub fn parse_nat(&self) -> Result<u64, &Self> {
+        let mut tree = self;
+        let mut x = 0;
+
+        loop {
+            match tree {
+                Tree::Stem(inner) => {
+                    x += 1;
+                    tree = inner;
+                }
+                Tree::Leaf => return Ok(x),
+                Tree::Fork(_, _) => return Err(self),
+            }
+        }
+    }
 }
 
 impl fmt::Display for Tree {

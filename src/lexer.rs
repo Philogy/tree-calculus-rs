@@ -32,6 +32,12 @@ pub enum Token<'src> {
     Arrow,
     #[token("fn")]
     Fn,
+    #[token("#num")]
+    Num,
+    #[token("#show")]
+    Show,
+    #[token("#viz")]
+    Visualize,
 
     Error,
     Eof,

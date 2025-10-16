@@ -40,5 +40,36 @@ alt_id = fn y x -> y
 2p2 = add 2 2
 2p4 = add 2 4
 4p2 = add 4 2
+3p3 = add 3 3
+
+#num 2p2
+#num 2p4
+#num 4p2
+#num 3p3
+10p3 = add 10 3
+#num 10p3
 
 add_weird = add 10 ($$$)
+
+count_inner = fn re sum prog -> succ ($
+    ($
+        sum
+        (re re sum))
+    (fn lhs rhs -> re re (re re sum lhs) rhs)
+    prog
+)
+
+count = count_inner count_inner 0
+
+
+false_count = count false
+true_count = count true
+
+add_count = count add
+
+#num add_count
+
+count_count = count count
+#num count_count
+
+#viz add

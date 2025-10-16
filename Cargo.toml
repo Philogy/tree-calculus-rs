@@ -5,3 +5,7 @@ edition = "2024"
 
 [dependencies]
 logos = "0.15.1"
+
+[profile.profiling]
+inherits = "release"
+debug = true         # Keep debug info for profilers

@@ -1,5 +1,5 @@
 use crate::lexer::{Lexer, Span, Token};
-use std::fmt;
+use std::{fmt, ptr::fn_addr_eq};
 
 #[derive(Debug, Clone)]
 pub enum TreeExpr<'src> {
@@ -140,44 +140,84 @@ fn parse_tree_expr<'src>(
 }
 
 #[derive(Debug)]
+pub enum Declaration<'src> {
+    TreeDecl(TreeDecl<'src>),
+    NumEval((&'src str, Span)),
+    Show((&'src str, Span)),
+    Visualize((&'src str, Span)),
+}
+impl<'src> From<TreeDecl<'src>> for Declaration<'src> {
+    fn from(value: TreeDecl<'src>) -> Self {
+        Self::TreeDecl(value)
+    }
+}
+
+#[derive(Debug)]
 pub struct TreeDecl<'src> {
     pub name: &'src str,
     pub span: Span,
     pub expr: TreeExpr<'src>,
 }
 
-pub fn parse_decl<'src>(lexer: &mut Lexer<'src>) -> Result<TreeDecl<'src>, Error> {
-    let (tok, name_span) = lexer.next_skip_newline();
-    let Token::Identifier(name) = tok else {
-        return Err((
-            format!("Unexpected token <{tok:?}>, expected <name>"),
-            name_span,
-        ));
-    };
-    let (tok, span) = lexer.next_skip_newline();
-    let Token::Equal = tok else {
-        return Err((format!("Unexpected token <{tok:?}>, expected '='"), span));
-    };
-    let expr = parse_tree_expr(lexer, false)?;
-
-    Ok(TreeDecl {
-        name,
-        span: name_span,
-        expr,
-    })
+pub fn parse_decl<'src>(lexer: &mut Lexer<'src>) -> Result<Declaration<'src>, Error> {
+    match lexer.peek_skip_newline() {
+        (Token::Identifier(name), name_span) => {
+            lexer.next();
+            let (tok, span) = lexer.next_skip_newline();
+            let Token::Equal = tok else {
+                return Err((format!("Unexpected token <{tok:?}>, expected '='"), span));
+            };
+            let expr = parse_tree_expr(lexer, false)?;
+            Ok(TreeDecl {
+                name,
+                span: name_span,
+                expr,
+            }
+            .into())
+        }
+        (Token::Num, _) => {
+            lexer.next();
+            let (tok, span) = lexer.next_skip_newline();
+            let Token::Identifier(name) = tok else {
+                return Err((format!("Unexpected token <{tok:?}>, expected <name>"), span));
+            };
+            Ok(Declaration::NumEval((name, span)))
+        }
+        (Token::Show, _) => {
+            lexer.next();
+            let (tok, span) = lexer.next_skip_newline();
+            let Token::Identifier(name) = tok else {
+                return Err((format!("Unexpected token <{tok:?}>, expected <name>"), span));
+            };
+            Ok(Declaration::Show((name, span)))
+        }
+        (Token::Visualize, _) => {
+            lexer.next();
+            let (tok, span) = lexer.next_skip_newline();
+            let Token::Identifier(name) = tok else {
+                return Err((format!("Unexpected token <{tok:?}>, expected <name>"), span));
+            };
+            Ok(Declaration::Visualize((name, span)))
+        }
+        (tok, span) => Err((format!("Unexpected token <{tok:?}>, expected <name>"), span)),
+    }
 }
 
-pub fn parse_declarations<'src>(lexer: &mut Lexer<'src>) -> Result<Vec<TreeDecl<'src>>, Error> {
+pub fn parse_declarations<'src>(lexer: &mut Lexer<'src>) -> Result<Vec<Declaration<'src>>, Error> {
     let mut decls = Vec::with_capacity(128);
 
-    while let (Token::Identifier(_), _) = lexer.peek_skip_newline() {
+    while let (Token::Identifier(_) | Token::Num | Token::Visualize | Token::Show, _) =
+        lexer.peek_skip_newline()
+    {
         decls.push(parse_decl(lexer)?);
     }
 
     let (tok, span) = lexer.next_skip_newline();
     if !matches!(tok, Token::Eof) {
         return Err((
-            format!("Unexpected token: <{tok:?}>, expected EOF / declaration"),
+            format!(
+                "Unexpected token: <{tok:?}>, expected EOF / declaration / #num / #show / #viz"
+            ),
             span,
         ));
     }
