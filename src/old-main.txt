@@ -14,55 +14,7 @@ impl Trees {
 }
 
 type Span = Range<usize>;
-type Error = (String, Range<usize>);
 
-struct LexerWrapper<'src> {
-    source: &'src str,
-    lexer: Lexer<'src, Token<'src>>,
-    peeked: Option<(Token<'src>, Span)>,
-}
-
-impl<'src> LexerWrapper<'src> {
-    fn new(source: &'src str) -> Self {
-        Self {
-            source,
-            lexer: Token::lexer(source),
-            peeked: None,
-        }
-    }
-    fn next(&mut self) -> (Token<'src>, Span) {
-        if let Some(inner) = self.peeked.take() {
-            return inner;
-        }
-
-        if let Some(tok) = self.lexer.next() {
-            return (tok.unwrap_or(Token::Error), self.lexer.span());
-        }
-
-        (Token::Eof, self.source.len()..self.source.len())
-    }
-
-    fn next_skip_newline(&mut self) -> (Token<'src>, Span) {
-        loop {
-            match self.next() {
-                (Token::Newline, _) => {}
-                (tok, span) => return (tok, span),
-            }
-        }
-    }
-
-    fn peek_skip_newline(&mut self) -> (Token<'src>, Span) {
-        let next = self.next_skip_newline();
-        self.peeked = Some(next.clone());
-        next
-    }
-
-    fn peek(&mut self) -> (Token<'src>, Span) {
-        let next = self.next();
-        self.peeked = Some(next.clone());
-        next
-    }
-}
 
 fn parse_paren_tree<'src>(
     lexer: &mut LexerWrapper<'src>,

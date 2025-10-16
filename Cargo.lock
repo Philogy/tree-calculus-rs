@@ -105,7 +105,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "treecalc-rs"
+name = "tree-calculus"
 version = "0.1.0"
 dependencies = [
  "logos",

@@ -1,0 +1,44 @@
+false = $
+true = $$
+
+not = $ ($ true ($$$)) $
+
+0 = $
+succ = $
+
+1 = succ 0
+2 = succ 1
+3 = succ 2
+4 = succ 3
+5 = succ 4
+6 = succ 5
+7 = succ 6
+8 = succ 7
+9 = succ 8
+10 = succ 9
+
+id = $ ($$$) $
+
+double_for_fork = $ ($ $) id
+fork2 = double_for_fork ($$$)
+fork3 = double_for_fork fork2
+
+ignore1 = $$
+comp = $ ($ (ignore1 $)) ($ ($ (ignore1 $)) ($$))
+
+ignore2 = comp ignore1 ignore1
+
+x = 3
+
+add_inner = fn re x -> (
+    $ ($ x (fn u -> succ (re re x u))) $
+)
+add = add_inner add_inner
+
+alt_id = fn y x -> y
+
+2p2 = add 2 2
+2p4 = add 2 4
+4p2 = add 4 2
+
+add_weird = add 10 ($$$)
