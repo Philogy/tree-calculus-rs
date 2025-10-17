@@ -113,7 +113,7 @@ fn parse_tree_expr<'src>(
                 }
                 inner_expr
             }
-            (Token::Close, _) if inside_paren => break,
+            (Token::Close, _) if inside_paren && !trees.is_empty() => break,
             (Token::Newline, _) if !inside_paren && !trees.is_empty() => break,
             // (Token::Newline, _) if !inside_paren && trees.is_empty() => {
             //     lexer.next();
@@ -142,8 +142,8 @@ fn parse_tree_expr<'src>(
 #[derive(Debug)]
 pub enum Declaration<'src> {
     TreeDecl(TreeDecl<'src>),
-    NumEval((&'src str, Span)),
-    Show((&'src str, Span)),
+    NumEval(TreeExpr<'src>),
+    Show(TreeExpr<'src>),
     Visualize((&'src str, Span)),
 }
 impl<'src> From<TreeDecl<'src>> for Declaration<'src> {
@@ -177,19 +177,13 @@ pub fn parse_decl<'src>(lexer: &mut Lexer<'src>) -> Result<Declaration<'src>, Er
         }
         (Token::Num, _) => {
             lexer.next();
-            let (tok, span) = lexer.next_skip_newline();
-            let Token::Identifier(name) = tok else {
-                return Err((format!("Unexpected token <{tok:?}>, expected <name>"), span));
-            };
-            Ok(Declaration::NumEval((name, span)))
+            let expr = parse_tree_expr(lexer, false)?;
+            Ok(Declaration::NumEval(expr))
         }
         (Token::Show, _) => {
             lexer.next();
-            let (tok, span) = lexer.next_skip_newline();
-            let Token::Identifier(name) = tok else {
-                return Err((format!("Unexpected token <{tok:?}>, expected <name>"), span));
-            };
-            Ok(Declaration::Show((name, span)))
+            let expr = parse_tree_expr(lexer, false)?;
+            Ok(Declaration::Show(expr))
         }
         (Token::Visualize, _) => {
             lexer.next();

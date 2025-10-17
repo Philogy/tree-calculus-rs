@@ -1,13 +1,6 @@
 use std::fmt;
 use std::rc::Rc;
 
-#[derive(Debug, Clone)]
-pub enum Tree {
-    Leaf,
-    Stem(Rc<Tree>),
-    Fork(Rc<Tree>, Rc<Tree>),
-}
-
 impl Tree {
     pub fn leaf() -> Rc<Self> {
         Rc::new(Self::Leaf)
@@ -59,7 +52,14 @@ impl fmt::Display for Tree {
     }
 }
 
-pub fn rec_tree_apply(a: &Rc<Tree>, b: &Rc<Tree>) -> Rc<Tree> {
+#[derive(Debug, Clone)]
+pub enum Tree {
+    Leaf,
+    Stem(Rc<Tree>),
+    Fork(Rc<Tree>, Rc<Tree>),
+}
+
+pub fn tree_apply(a: &Rc<Tree>, b: &Rc<Tree>) -> Rc<Tree> {
     match a.as_ref() {
         // △ x = △ x
         Tree::Leaf => Rc::new(Tree::Stem(b.clone())),
@@ -69,12 +69,12 @@ pub fn rec_tree_apply(a: &Rc<Tree>, b: &Rc<Tree>) -> Rc<Tree> {
             // △ △ a b = a
             (Tree::Leaf, a) => a.clone(),
             // △ (△ x) y z = x z (y z)
-            (Tree::Stem(a1), a2) => rec_tree_apply(&rec_tree_apply(a1, b), &rec_tree_apply(a2, b)),
+            (Tree::Stem(a1), a2) => tree_apply(&tree_apply(a1, b), &tree_apply(a2, b)),
             // △ (△ x y) z w => (x | y w.stem | z w.lhs w.rhs)
             (Tree::Fork(a1, a2), a3) => match b.as_ref() {
                 Tree::Leaf => a1.clone(),
-                Tree::Stem(u) => rec_tree_apply(a2, u),
-                Tree::Fork(u, v) => rec_tree_apply(&rec_tree_apply(a3, u), v),
+                Tree::Stem(u) => tree_apply(a2, u),
+                Tree::Fork(u, v) => tree_apply(&tree_apply(a3, u), v),
             },
         },
     }
@@ -86,7 +86,7 @@ enum TreeEvalStage {
     DuplicatePendingFinalEval(Rc<Tree>),
 }
 
-pub fn tree_apply(mut a: Rc<Tree>, mut b: Rc<Tree>) -> Rc<Tree> {
+pub fn tree_apply_flat(mut a: Rc<Tree>, mut b: Rc<Tree>) -> Rc<Tree> {
     let mut eval_stack = Vec::with_capacity(1024);
 
     loop {

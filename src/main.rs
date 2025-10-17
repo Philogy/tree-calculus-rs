@@ -1,7 +1,8 @@
+use std::io::Write;
+
 use tree_calculus::{
-    Declaration, Lexer, Span, TreeNamespace, compile_tree_expr,
-    fast_tree::{Tree, TreeIndex, Trees},
-    parse_declarations,
+    Declaration, Lexer, Span, Tree, TreeIndex, TreeNamespace, Trees, compile_tree_expr,
+    optimizations, parse_declarations,
 };
 
 fn pretty_err<'src>(source: &'src str, reason: String, span: Span, with_line_number: bool) {
@@ -106,44 +107,45 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-            Declaration::NumEval((name, span))
-            | Declaration::Show((name, span))
-            | Declaration::Visualize((name, span)) => {
-                if let None = namespace.get(name) {
-                    pretty_err(&source, format!("Undefined {:?}", name), span.clone(), true);
-                    std::process::exit(1);
-                }
-            }
-        }
-    }
-
-    // dbg!(&trees);
-
-    for decl in decls.iter() {
-        match decl {
-            Declaration::TreeDecl(_) => {}
-            Declaration::Visualize((name, _)) => {
-                let tree = namespace.get(name).expect("errors processed");
-                visualize_tree(&mut buf, &trees, name, tree);
-
-                std::fs::write(format!("trees/tree-{}.dot", name), &buf).unwrap();
-            }
-            Declaration::NumEval((name, _)) => {
-                let tree_idx = namespace.get(name).expect("errors processed?");
-                match trees.parse_nat(tree_idx) {
-                    Ok(x) => println!("{name} => {x}"),
+            Declaration::NumEval(expr) => {
+                let compiled = compile_tree_expr(&mut trees, expr);
+                let resulting_tree = match namespace.eval_tree(&mut trees, &compiled) {
+                    Ok(result) => result,
+                    Err((reason, span)) => {
+                        pretty_err(&source, reason, span, true);
+                        std::process::exit(1);
+                    }
+                };
+                match trees.parse_stem_nat(resulting_tree) {
+                    Ok(x) => println!("{expr} => {x}"),
                     Err(tree_idx) => {
-                        println!(
-                            "{name} => (not nat: {})",
+                        eprintln!(
+                            "{expr} => (not nat: {})",
                             trees.as_ref(trees.index(tree_idx))
                         )
                     }
                 }
             }
-            Declaration::Show((name, _)) => {
-                let tree_idx = namespace.get(name).expect("errors processed?");
-                let tree = trees.index(tree_idx);
-                println!("{} = {}", name, trees.as_ref(tree));
+            Declaration::Show(expr) => {
+                let compiled = compile_tree_expr(&mut trees, expr);
+                print!("{} =>", expr);
+                std::io::stdout().flush().unwrap();
+                let resulting_tree = match namespace.eval_tree(&mut trees, &compiled) {
+                    Ok(result) => result,
+                    Err((reason, span)) => {
+                        pretty_err(&source, reason, span, true);
+                        std::process::exit(1);
+                    }
+                };
+                println!(" {}", trees.as_ref(trees.index(resulting_tree)));
+            }
+            Declaration::Visualize((name, span)) => {
+                let Some(tree) = namespace.get(name) else {
+                    pretty_err(&source, format!("Undefined {:?}", name), span.clone(), true);
+                    std::process::exit(1);
+                };
+                visualize_tree(&mut buf, &trees, name, tree);
+                std::fs::write(format!("trees/{}.dot", name), &buf).unwrap();
             }
         }
     }

@@ -6,6 +6,8 @@ use std::num::NonZero;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TreeIndex(NonZero<u32>);
 
+const MAX_TREE_APPLY_ITERS: usize = 1_000_000_000;
+
 impl TreeIndex {
     #[inline]
     pub const fn idx(&self) -> usize {
@@ -20,61 +22,77 @@ impl TreeIndex {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(align(8))]
-struct StoredTree {
-    children: Option<(TreeIndex, Option<TreeIndex>)>,
+struct TreeStoreEntry {
+    lhs_or_free_entry: Option<TreeIndex>,
+    rhs_or_stem: Option<TreeIndex>,
 }
 
-impl StoredTree {
+impl TreeStoreEntry {
     pub fn leaf() -> Self {
-        StoredTree { children: None }
+        TreeStoreEntry {
+            lhs_or_free_entry: None,
+            rhs_or_stem: None,
+        }
     }
 
     pub fn stem(child: TreeIndex) -> Self {
-        StoredTree {
-            children: Some((child, None)),
+        TreeStoreEntry {
+            lhs_or_free_entry: None,
+            rhs_or_stem: Some(child),
         }
     }
 
     pub fn fork(lhs: TreeIndex, rhs: TreeIndex) -> Self {
-        StoredTree {
-            children: Some((lhs, Some(rhs))),
+        TreeStoreEntry {
+            lhs_or_free_entry: Some(lhs),
+            rhs_or_stem: Some(rhs),
+        }
+    }
+
+    fn free_entry(next_free: TreeIndex) -> Self {
+        TreeStoreEntry {
+            lhs_or_free_entry: Some(next_free),
+            rhs_or_stem: None,
+        }
+    }
+
+    fn get_free(&self) -> Option<TreeIndex> {
+        match (self.lhs_or_free_entry, self.rhs_or_stem) {
+            (Some(next_free), None) => Some(next_free),
+            _ => None,
         }
     }
 
     #[inline]
     fn to_u64(self) -> u64 {
-        let (lhs, rhs) = match self.children {
-            None => (0, 0),
-            Some((lhs, None)) => (lhs.0.get(), 0),
-            Some((lhs, Some(rhs))) => ((lhs.0.get()), (rhs.0.get())),
-        };
-
+        let lhs = self.lhs_or_free_entry.map_or(0, |x| x.0.get());
+        let rhs = self.rhs_or_stem.map_or(0, |x| x.0.get());
         (lhs as u64) | ((rhs as u64) << 32)
     }
 }
 
-impl std::cmp::PartialOrd for StoredTree {
+impl std::cmp::PartialOrd for TreeStoreEntry {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.to_u64().cmp(&other.to_u64()))
     }
 }
 
-impl std::cmp::Ord for StoredTree {
+impl std::cmp::Ord for TreeStoreEntry {
     #[inline]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.to_u64().cmp(&other.to_u64())
     }
 }
 
-impl std::hash::Hash for StoredTree {
+impl std::hash::Hash for TreeStoreEntry {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         state.write_u64(self.to_u64());
     }
 }
 
-impl From<Tree> for StoredTree {
+impl From<Tree> for TreeStoreEntry {
     fn from(value: Tree) -> Self {
         match value {
             Tree::Leaf => Self::leaf(),
@@ -84,18 +102,23 @@ impl From<Tree> for StoredTree {
     }
 }
 
-impl From<StoredTree> for Tree {
-    fn from(value: StoredTree) -> Tree {
-        match value.children {
-            None => Tree::Leaf,
-            Some((value, None)) => Tree::Stem(value),
-            Some((lhs, Some(rhs))) => Tree::Fork(lhs, rhs),
+pub struct IsFreeListEntryError;
+
+impl TryFrom<TreeStoreEntry> for Tree {
+    type Error = IsFreeListEntryError;
+
+    fn try_from(value: TreeStoreEntry) -> Result<Self, Self::Error> {
+        match (value.lhs_or_free_entry, value.rhs_or_stem) {
+            (None, None) => Ok(Tree::Leaf),
+            (None, Some(value)) => Ok(Tree::Stem(value)),
+            (Some(lhs), Some(rhs)) => Ok(Tree::Fork(lhs, rhs)),
+            (Some(_), None) => Err(IsFreeListEntryError),
         }
     }
 }
 
 const _ASSERT_STORED_TREE_SIZE: () = const {
-    assert!(std::mem::size_of::<StoredTree>() == 8);
+    assert!(std::mem::size_of::<TreeStoreEntry>() == 8);
 };
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -103,6 +126,20 @@ pub enum Tree {
     Leaf,
     Stem(TreeIndex),
     Fork(TreeIndex, TreeIndex),
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum TreeFunc {
+    // (△) x = △ x
+    Leaf,
+    // (△ a) x = △ a x
+    Stem(TreeIndex),
+    // (△ △ a) b => a
+    IgnoreThen(TreeIndex),
+    // △ (△ x) y z = x z (y z)
+    DoubleChain(TreeIndex, TreeIndex),
+    // △ (△ x y) z w => (x | y w.stem | z w.lhs w.rhs)
+    Match(TreeIndex, TreeIndex, TreeIndex),
 }
 
 impl Tree {
@@ -160,10 +197,12 @@ impl TreeEvalFrame {
 
 #[derive(Debug)]
 pub struct Trees {
-    indexed_trees: HashMap<StoredTree, TreeIndex, RandomState>,
+    indexed_trees: HashMap<TreeStoreEntry, TreeIndex, RandomState>,
     cached_applications: HashMap<(TreeIndex, TreeIndex), TreeIndex, RandomState>,
-    trees: Vec<StoredTree>,
+    trees: Vec<TreeStoreEntry>,
+    next_free: usize,
     eval_stack: Vec<TreeEvalFrame>,
+    iters: usize,
 }
 
 impl Trees {
@@ -179,17 +218,16 @@ impl Trees {
                 application_cache_size,
                 Default::default(),
             ),
+            next_free: 0,
             trees: Vec::with_capacity(tree_capacity),
             eval_stack: Vec::with_capacity(256),
+            iters: 0,
         };
 
-        assert_eq!(trees.push_and_index(Tree::Leaf), Self::LEAF);
+        assert_eq!(trees.insert(Tree::Leaf), Self::LEAF);
+        assert_eq!(trees.insert(Tree::Stem(Self::LEAF)), Self::STEM_LEAF);
         assert_eq!(
-            trees.push_and_index(Tree::Stem(Self::LEAF)),
-            Self::STEM_LEAF
-        );
-        assert_eq!(
-            trees.push_and_index(Tree::Fork(Self::LEAF, Self::LEAF)),
+            trees.insert(Tree::Fork(Self::LEAF, Self::LEAF)),
             Self::FORK_LEAF_LEAF
         );
 
@@ -198,17 +236,35 @@ impl Trees {
         // △ (△ △ △) △ (△ x) -> △ x
         // △ (△ △ △) △ (△ x y) -> (△ x) y -> (△ x y)
         assert_eq!(
-            trees.push_and_index(Tree::Fork(Self::FORK_LEAF_LEAF, Self::LEAF)),
+            trees.insert(Tree::Fork(Self::FORK_LEAF_LEAF, Self::LEAF)),
             Self::IDENTITY
         );
 
         trees
     }
 
+    pub fn ignore_then(&mut self, then: TreeIndex) -> TreeIndex {
+        self.insert(Tree::Fork(Trees::LEAF, then))
+    }
+
+    fn get_debug_checked(&self, idx: usize) -> TreeStoreEntry {
+        debug_assert!(idx < self.trees.len(), "index out of bounds");
+        *unsafe { self.trees.get_unchecked(idx) }
+    }
+
     fn push_and_index(&mut self, tree: Tree) -> TreeIndex {
         let tree = tree.into();
         let idx = TreeIndex::from_idx(self.trees.len());
-        self.trees.push(tree);
+        if self.next_free == self.trees.len() {
+            self.trees.push(tree);
+            self.next_free += 1;
+        } else {
+            let free_list_node = self.get_debug_checked(self.next_free);
+            let next_free = free_list_node.get_free();
+            debug_assert!(next_free.is_some(), "Free entry not free");
+            self.trees[self.next_free] = tree;
+            self.next_free = unsafe { next_free.unwrap_unchecked() }.idx();
+        }
         self.indexed_trees.insert(tree, idx);
         idx
     }
@@ -221,10 +277,38 @@ impl Trees {
     }
 
     pub fn index(&self, idx: TreeIndex) -> Tree {
-        let idx = idx.idx();
-        debug_assert!(idx < self.trees.len(), "index out of bounds");
-        let stored = *unsafe { self.trees.get_unchecked(idx) };
-        stored.into()
+        let stored = self.get_debug_checked(idx.idx());
+        let tree_res = stored.try_into();
+        debug_assert!(tree_res.is_ok(), "querying free index?");
+        unsafe { tree_res.unwrap_unchecked() }
+    }
+
+    pub fn index_func(&self, idx: TreeIndex) -> TreeFunc {
+        match self.index(idx) {
+            Tree::Leaf => TreeFunc::Leaf,
+            Tree::Stem(inner) => TreeFunc::Stem(inner),
+            Tree::Fork(lhs, rhs) => match self.index(lhs) {
+                Tree::Leaf => TreeFunc::IgnoreThen(rhs),
+                Tree::Stem(x) => TreeFunc::DoubleChain(x, rhs),
+                Tree::Fork(x, y) => TreeFunc::Match(x, y, rhs),
+            },
+        }
+    }
+
+    pub fn insert_func(&mut self, func: TreeFunc) -> TreeIndex {
+        match func {
+            TreeFunc::Leaf => Self::LEAF,
+            TreeFunc::Stem(inner) => self.insert(Tree::Stem(inner)),
+            TreeFunc::IgnoreThen(then) => self.ignore_then(then),
+            TreeFunc::DoubleChain(x, y) => {
+                let stem_x = self.insert(Tree::Stem(x));
+                self.insert(Tree::Fork(stem_x, y))
+            }
+            TreeFunc::Match(x, y, z) => {
+                let xy = self.insert(Tree::Fork(x, y));
+                self.insert(Tree::Fork(xy, z))
+            }
+        }
     }
 
     pub fn count_non_garbage(&self, alive: impl Iterator<Item = TreeIndex>) -> usize {
@@ -245,7 +329,7 @@ impl Trees {
         tree_alive.into_iter().filter(|b| *b).count()
     }
 
-    pub fn parse_nat(&self, start: TreeIndex) -> Result<u64, TreeIndex> {
+    pub fn parse_stem_nat(&self, start: TreeIndex) -> Result<u64, TreeIndex> {
         let mut tree = start;
         let mut x = 0;
         loop {
@@ -261,10 +345,55 @@ impl Trees {
         }
     }
 
-    pub fn tree_apply(&mut self, mut a: TreeIndex, mut b: TreeIndex) -> TreeIndex {
+    pub fn parse_fork_nat(&self, start: TreeIndex) -> Result<u64, TreeIndex> {
+        let mut tree = start;
+        let mut x = 0;
+        loop {
+            match self.index(tree) {
+                Tree::Leaf => return Ok(x),
+                Tree::Fork(Trees::LEAF, inner) => {
+                    x += 1;
+                    debug_assert!(tree > inner);
+                    tree = inner;
+                }
+                _ => return Err(start),
+            }
+        }
+    }
+
+    pub fn tree_apply(&mut self, a: TreeIndex, b: TreeIndex) -> TreeIndex {
+        self.iters = 0;
+        // println!("tree_apply");
+        // println!("    ===== a =====\n    {}", self.as_ref(self.index(a)));
+        // println!("    ===== b =====\n    {}", self.as_ref(self.index(b)));
+        let idx = self.tree_apply_inner(a, b);
+        if self.iters > 100_000 {
+            println!("eval took {} steps", self.iters);
+        }
+        self.cached_applications.clear();
+        idx
+    }
+
+    fn tree_apply_inner(&mut self, mut a: TreeIndex, mut b: TreeIndex) -> TreeIndex {
         self.eval_stack.clear();
 
         'apply: loop {
+            self.iters += 1;
+            // if iters % 100_000 == 0 {
+            //     println!("tree_apply_inner {}", iters);
+            // }
+
+            if self.iters >= MAX_TREE_APPLY_ITERS {
+                let slice_start = self.eval_stack.len().saturating_sub(30);
+                for f in &self.eval_stack[slice_start..] {
+                    eprintln!("  {:?}", f);
+                }
+                panic!(
+                    "potentially infinite execution (exceeded {} iterations)",
+                    self.iters,
+                );
+            }
+
             let result = match self.index(a) {
                 // △ b = △ b
                 Tree::Leaf => self.insert(Tree::Stem(b)),
@@ -308,7 +437,10 @@ impl Trees {
 
             'unwind_stack: loop {
                 match self.eval_stack.pop() {
-                    None => return result,
+                    None => {
+                        // println!("self.eval_stack.len(): {:?}", self.eval_stack.len());
+                        return result;
+                    }
                     Some(TreeEvalFrame {
                         input_to_cache,
                         fork_partial: Some(v),
@@ -344,6 +476,13 @@ impl Trees {
                         fork_partial: None,
                         duplicate_end: None,
                     }) => {
+                        // let (a, b) = input_to_cache;
+                        // println!(
+                        //     "({}) ({}) => {}",
+                        //     self.as_ref(self.index(a)),
+                        //     self.as_ref(self.index(b)),
+                        //     self.as_ref(self.index(result))
+                        // );
                         self.cached_applications.insert(input_to_cache, result);
                         continue 'unwind_stack;
                     }
@@ -360,8 +499,8 @@ impl Trees {
         println!("self.trees.len(): {:?}", self.trees.len());
         println!("self.indexed_trees.len(): {:?}", self.indexed_trees.len());
         println!(
-            "self.cached_applications.len(): {:?}",
-            self.cached_applications.len()
+            "self.cached_applications.capacity(): {:?}",
+            self.cached_applications.capacity()
         );
         println!(
             "self.eval_stack.capacity(): {:?}",
@@ -371,6 +510,21 @@ impl Trees {
 
     pub fn total_trees_stored(&self) -> usize {
         self.trees.len()
+    }
+
+    pub fn count_nodes(&self, tree: TreeIndex) -> usize {
+        let mut trees_stack = Vec::with_capacity(256);
+        trees_stack.push(tree);
+        let mut total = 0;
+        while let Some(tree) = trees_stack.pop() {
+            total += 1;
+            match self.index(tree) {
+                Tree::Leaf => {}
+                Tree::Stem(inner) => trees_stack.push(inner),
+                Tree::Fork(lhs, rhs) => trees_stack.extend_from_slice(&[lhs, rhs]),
+            }
+        }
+        total
     }
 }
 

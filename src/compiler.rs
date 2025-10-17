@@ -2,7 +2,7 @@ use crate::fast_tree::{Tree, TreeIndex, Trees};
 use crate::{ParserError, Span, TreeExpr, TreeLambda};
 use std::{collections::HashMap, fmt};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CompiledTree<'src> {
     Tree(TreeIndex),
     NameRef((&'src str, Span)),
@@ -29,6 +29,10 @@ impl<'src> fmt::Display for CompiledTree<'src> {
                     }
                 }
             }
+            Self::Tree(Trees::LEAF) => write!(f, "△")?,
+            Self::Tree(Trees::STEM_LEAF) => write!(f, "△ △")?,
+            Self::Tree(Trees::FORK_LEAF_LEAF) => write!(f, "△ △ △")?,
+            Self::Tree(Trees::IDENTITY) => write!(f, "id")?,
             Self::Tree(tree) => write!(f, "tree#{}", tree.idx())?,
         }
         Ok(())
@@ -80,20 +84,23 @@ fn ignore_input_and_return_tree<'src>(
     // △ △ return_tree
     // △ △ return_tree input -> return_tree
     match return_tree {
-        CompiledTree::Tree(return_tree) => {
-            let tree = Tree::Fork(Trees::LEAF, return_tree);
-            trees.insert(tree).into()
-        }
+        CompiledTree::Tree(return_tree) => trees.ignore_then(return_tree).into(),
         compiled => vec![Trees::STEM_LEAF.into(), compiled].into(),
     }
 }
 
-fn partial_stem<'src>(inner: CompiledTree<'src>) -> CompiledTree<'src> {
-    vec![Trees::LEAF.into(), inner].into()
+fn chain_double<'src>(x: CompiledTree<'src>, y: CompiledTree<'src>) -> CompiledTree<'src> {
+    vec![Trees::LEAF.into(), vec![Trees::LEAF.into(), x].into(), y].into()
 }
 
-fn partial_fork<'src>(lhs: CompiledTree<'src>, rhs: CompiledTree<'src>) -> CompiledTree<'src> {
-    vec![Trees::LEAF.into(), lhs, rhs].into()
+fn references_input<'src>(tree: &CompiledTree<'src>, input_name: &'src str) -> bool {
+    match tree {
+        CompiledTree::Tree(_) => false,
+        CompiledTree::NameRef((ref_name, _)) => *ref_name == input_name,
+        CompiledTree::Application(sub_trees) => sub_trees
+            .into_iter()
+            .any(|tree| references_input(tree, input_name)),
+    }
 }
 
 fn construct_tree_from_out_and_input<'src>(
@@ -110,20 +117,49 @@ fn construct_tree_from_out_and_input<'src>(
                 ignore_input_and_return_tree(trees, CompiledTree::NameRef((ref_name, span)))
             }
         }
-        CompiledTree::Application(sub_trees) => sub_trees
-            .into_iter()
-            .fold(None, |acc_tree, next_tree| {
-                Some(match acc_tree {
-                    None => construct_tree_from_out_and_input(trees, next_tree, input_name),
-                    Some(acc_tree) => partial_fork(
-                        partial_stem(acc_tree),
-                        construct_tree_from_out_and_input(trees, next_tree, input_name),
-                    ),
+        CompiledTree::Application(mut sub_trees) => {
+            let end_index = sub_trees
+                .iter()
+                .position(|sub_tree| references_input(sub_tree, input_name))
+                .unwrap_or(sub_trees.len());
+
+            match sub_trees.last() {
+                Some(CompiledTree::NameRef((ref_name, _)))
+                    if *ref_name == input_name
+                        && end_index == sub_trees.len() - 1
+                        && sub_trees.len() >= 2 =>
+                {
+                    sub_trees.pop().unwrap();
+                    return CompiledTree::Application(sub_trees);
+                }
+                _ => {}
+            };
+
+            let (first_tree_app, remaining) = if end_index > 0 {
+                let remaining = sub_trees.split_off(end_index);
+                let app = CompiledTree::Application(sub_trees);
+                (Some(ignore_input_and_return_tree(trees, app)), remaining)
+            } else {
+                (None, sub_trees)
+            };
+
+            remaining
+                .into_iter()
+                .fold(first_tree_app, |acc_tree, next_tree| {
+                    Some(match acc_tree {
+                        None => construct_tree_from_out_and_input(trees, next_tree, input_name),
+                        Some(acc_tree) => chain_double(
+                            acc_tree,
+                            construct_tree_from_out_and_input(trees, next_tree, input_name),
+                        ),
+                    })
                 })
-            })
-            .expect("empty tree?"),
+                .expect("empty tree?")
+        }
     }
 }
+
+const MAX_EVAL_TREE_ITERS: usize = 100_000_000;
 
 #[derive(Debug)]
 pub struct TreeNamespace<'src> {
@@ -149,8 +185,15 @@ impl<'src> TreeNamespace<'src> {
         let mut application_frames = Vec::with_capacity(256);
         application_frames.push((None, std::slice::from_ref(tree)));
 
+        let mut iters = 0;
+
         'process_apply_frames: while let Some((mut acc, remaining_trees)) = application_frames.pop()
         {
+            iters += 1;
+            if iters >= MAX_EVAL_TREE_ITERS {
+                panic!("Exceeded {} eval iters", iters);
+            }
+
             for (i, tree) in remaining_trees.into_iter().enumerate() {
                 let evaluated = match tree {
                     CompiledTree::NameRef((name, span)) => self

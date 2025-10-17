@@ -1,0 +1,205 @@
+false = $
+true = $$
+
+not = $ ($ true ($$$)) $
+
+0 = $
+succ = $
+
+1 = succ 0
+2 = succ 1
+3 = succ 2
+4 = succ 3
+5 = succ 4
+6 = succ 5
+7 = succ 6
+8 = succ 7
+9 = succ 8
+10 = succ 9
+11 = succ 10
+12 = succ 11
+13 = succ 12
+14 = succ 13
+15 = succ 14
+16 = succ 15
+17 = succ 16
+18 = succ 17
+19 = succ 18
+20 = succ 19
+
+id = $ ($$$) $
+
+#num 20
+
+
+K = $$
+d = $ ($ ($$$)) $
+comp = $ ($ (K $)) ($ ($ (K $)) ($$))
+ignore2 = comp K K
+
+mk_lazy1 = fn x -> d (K (d (K ($ ($$$) x)))) $
+#show mk_lazy1
+
+#show mk_lazy1 $
+#show mk_lazy1 $ $
+#show mk_lazy1 $ $ $
+#show mk_lazy1 $ $ $ $
+
+mk_lazy2 = fn x y -> mk_lazy1 (mk_lazy1 x y)
+#show mk_lazy2
+#show mk_lazy2 $
+#show mk_lazy2 $ $
+#show mk_lazy2 $ $ $
+#show mk_lazy2 $ $ $ $
+
+mk_lazy3 = fn f1 f2 -> mk_lazy2 (mk_lazy1 f1 f2)
+
+// f -> f f
+ff = $ ($ id) id
+#show ff
+
+
+mk_mk_rec = fn lazy_maker -> fn f -> ff (fn re -> lazy_maker f (mk_lazy1 re re))
+mk_rec1 = mk_mk_rec mk_lazy1
+mk_rec2 = mk_mk_rec mk_lazy2
+mk_rec3 = mk_mk_rec mk_lazy3
+
+// infinity = mk_lazy1 mk_rec mk_rec
+// #show infinity
+
+add = mk_rec2 fn re x -> (
+    $ ($ x (comp succ (re x))) $
+)
+
+#show add
+#show add 2
+
+#num add 0 0
+#num add 0 1
+#num add 1 0
+
+#num add 2 2
+#num add 2 4
+#num add 4 2
+#num add 3 3
+#num add 10 3
+
+count_tree_nodes = mk_rec2 (fn re sum -> comp succ ($
+    ($
+        sum
+        (re sum))
+    (fn lhs -> re (re sum lhs))
+)) 0
+
+#num count_tree_nodes count_tree_nodes
+#num count_tree_nodes add
+#num count_tree_nodes mk_lazy3
+
+#viz count_tree_nodes
+#viz add
+
+//
+//
+// fib = make_rec (fn re a b -> $ ($ a (fn n -> re re b (add a b) n)) $) 0 1
+//
+// #num count_tree_nodes fib
+// #num fib 0
+// #num fib 1
+// #num fib 2
+// #num fib 3
+// #num fib 4
+// #num fib 5
+// #num fib 6
+// #num fib 7
+// #num fib 8
+// #num fib 9
+// #num fib 10
+// #num fib 11
+// #num fib 12
+//
+// #num fib (add (fib 9) 2)
+//
+// match = fn w x y z -> $ ($ x y) z w
+// #num count_tree_nodes match
+//
+//
+// infinity = make_rec (fn re x -> succ (make_rec re x))
+// #num count_tree_nodes infinity
+//
+//
+// // inode = $ is_symbol (fork / stem / leaf over inodes)
+// make_inode = $
+//
+// isymbol = make_inode true $
+// tree_to_itree = make_rec (fn re tree ->
+//     match tree
+//         (make_inode false $)                      // leaf -> inode_leaf
+//         (fn u -> make_inode false ($ (re re u)))  // stem(v) -> inode_stem (to_itree v)
+//         (fn lhs rhs -> make_inode false ($ (re re lhs) (re re rhs)))
+// )
+//
+// #show tree_to_itree ($ ($ $ $))
+// #num count_tree_nodes tree_to_itree
+//
+//
+//
+// // basic_simplify = make_rec (fn re tree ->
+// //     // Looking to match:
+// //     // Fork {
+// //     //     lhs1: Stem {
+// //     //         inner: Fork{Leaf, x}
+// //     //     },
+// //     //     rhs1: Fork{Leaf, y}
+// //     // }
+// //     match tree
+// //         $ // Leave leaf untouched
+// //         $ // Leave stem untouched
+// //         (fn lhs1 rhs1 -> match lhs1
+// //              ($$ rhs1)                     // tree.lhs1 => leaf
+// //              (fn inner -> match inner      // tree.lhs1 => stem
+// //                 ($ ($$) rhs1)              //   tree.lhs1.inner => leaf
+// //                 (fn u -> $ ($ ($ u)) rhs1) //   tree.lhs1.inner => stem
+// //                 (fn maybe_leaf maybe_x ->  //   tree.lhs1.inner => fork
+// //                 )
+// //              )
+// //              (fn u v -> $ ($ u v) rhs1)    // tree.lhs1 => fork
+// //         )
+// // )
+//
+//
+// cookie_cutter = (
+//     $ ($ ($$$)) ($$$)
+// )
+//
+// // #show cookie_cutter 3
+// // #show cookie_cutter match
+// #viz match
+//
+//
+//
+// optimized_add = (
+// △ (△ (△ (△ (△ △ △)) (△ (△ △) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ (△ (△ △ (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ △)))) (△ (△ (△
+//  △ (△ (△ (△ △ (△ (△ (△ △ △)))))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ 
+// (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ (△ △)))))) (△ △))))))) (△ (△ (△ △ (△ (△ (△ △ (△ △)))))) (△ △)))))))) (△ △ (△ (△ (△ △ (△ △))) (△ (△ △ △) △))))))))) (△ △
+//  (△ △ (△ (△ △ △) △)))))))))) (△ △ (△ △ △))))) (△ △ (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ △)))) (△ (△ (△ △ (△ (△ (△ △ (△ (△ (△ △ △)))))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ 
+// (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △
+// ))))) (△ (△ (△ △ (△ (△ (△ △ (△ △)))))) (△ △))))))) (△ (△ (△ △ (△ (△ (△ △ (△ △)))))) (△ △)))))))) (△ △ (△ (△ (△ △ (△ △))) (△ (△ △ △) △))))))))) (△ △ (△ △ (△ (△ △ △) △)))))))))) (△ △ (△ △ △))))))))) (△ △))))) (△ △ (△ (△ △ △) △)))))
+// )) (△ △ △)
+// )
+// #viz optimized_add
+// #viz add
+//
+// #num count_tree_nodes add
+// #num count_tree_nodes optimized_add
+//
+// #num optimized_add 0 2
+// #num optimized_add 1 0
+// #num optimized_add 2 2
+// #num optimized_add 2 4
+// #num optimized_add 4 2
+// #num optimized_add 3 3
+// #num optimized_add 10 3
+//
+// #num count_tree_nodes fib
+// #viz fib
+
