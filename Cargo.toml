@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 logos = "0.15.1"
 ahash = "0.8.12"
+hex = "0.4.3"
 
 [profile.profiling]
 inherits = "release"

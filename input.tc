@@ -1,41 +1,63 @@
-false = $
-true = $$
 
-not = $ ($ true ($$$)) $
+nat0 = $
+succ = $$
 
-0 = $
-succ = $
-
-1 = succ 0
-2 = succ 1
-3 = succ 2
-4 = succ 3
-5 = succ 4
-6 = succ 5
-7 = succ 6
-8 = succ 7
-9 = succ 8
-10 = succ 9
-11 = succ 10
-12 = succ 11
-13 = succ 12
-14 = succ 13
-15 = succ 14
-16 = succ 15
-17 = succ 16
-18 = succ 17
-19 = succ 18
-20 = succ 19
+nat1 = succ nat0
+nat2 = succ nat1
+nat3 = succ nat2
+nat4 = succ nat3
+nat5 = succ nat4
+nat6 = succ nat5
+nat7 = succ nat6
+nat8 = succ nat7
+nat9 = succ nat8
+nat10 = succ nat9
+nat11 = succ nat10
+nat12 = succ nat11
+nat13 = succ nat12
+nat14 = succ nat13
+nat15 = succ nat14
+nat16 = succ nat15
+nat17 = succ nat16
+nat18 = succ nat17
+nat19 = succ nat18
+nat20 = succ nat19
+nat21 = succ nat20
+nat22 = succ nat21
+nat23 = succ nat22
+nat24 = succ nat23
+nat25 = succ nat24
+nat26 = succ nat25
+nat27 = succ nat26
+nat28 = succ nat27
+nat29 = succ nat28
+nat30 = succ nat29
+nat31 = succ nat30
+nat32 = succ nat31
 
 id = $ ($$$) $
 
-#num 20
+#num nat20
 
 
 K = $$
 d = $ ($ ($$$)) $
 comp = $ ($ (K $)) ($ ($ (K $)) ($$))
 ignore2 = comp K K
+
+
+// x y -> x
+true = $$
+// x y -> y
+false = K id
+not = fn bool -> bool false true
+bool_to_nat = fn b -> b nat1 nat0
+
+#show true
+#show false
+#show not
+#show not true
+#show not false
 
 mk_lazy1 = fn x -> d (K (d (K ($ ($$$) x)))) $
 #show mk_lazy1
@@ -64,142 +86,665 @@ mk_rec1 = mk_mk_rec mk_lazy1
 mk_rec2 = mk_mk_rec mk_lazy2
 mk_rec3 = mk_mk_rec mk_lazy3
 
+K2 = comp K K
+K3 = comp K K2
+
+
+fork_lhs  = $ ($$$) (K)
+fork_rhs  = $ ($$$) (K id)
+
+then = fn x f -> f x
+
+// :: bool -> x -> y -> x/y
+if = id
+
 // infinity = mk_lazy1 mk_rec mk_rec
 // #show infinity
 
-add = mk_rec2 fn re x -> (
-    $ ($ x (comp succ (re x))) $
+tree_eq = mk_rec2 fn re x -> (
+    $
+    ($
+        ($ ($ true        (K false)) (K2 false) x)
+        ($ ($ (K false)      re    ) (K3 false) x)
+    )
+        ($ ($ (K2 false) (K3 false)) (fn xl xr yl yr -> if (re xl yl) (re xr yr) false) x)
 )
 
-#show add
-#show add 2
+#num bool_to_nat (tree_eq $ $)
+#num bool_to_nat (tree_eq $ ($$))
+#num bool_to_nat (tree_eq ($$$) ($$))
+#num bool_to_nat (tree_eq ($$$) ($$$))
+#num bool_to_nat (tree_eq tree_eq tree_eq)
 
-#num add 0 0
-#num add 0 1
-#num add 1 0
+match_nat = fn zero_res succ_fn -> $ ($ zero_res $) (K succ_fn)
 
-#num add 2 2
-#num add 2 4
-#num add 4 2
-#num add 3 3
-#num add 10 3
+nat_add = mk_rec2 fn re x -> match_nat x (comp succ (re x))
+
+
+#show nat_add
+#show nat_add nat2
+
+#num nat_add nat0 nat0
+#num nat_add nat0 nat1
+#num nat_add nat1 nat0
+
+#num nat_add nat2 nat2
+#num nat_add nat2 nat4
+#num nat_add nat4 nat2
+#num nat_add nat3 nat3
+#num nat_add nat10 nat3
 
 count_tree_nodes = mk_rec2 (fn re sum -> comp succ ($
     ($
         sum
         (re sum))
     (fn lhs -> re (re sum lhs))
-)) 0
+)) nat0
 
 #num count_tree_nodes count_tree_nodes
-#num count_tree_nodes add
+#num count_tree_nodes nat_add
 #num count_tree_nodes mk_lazy3
 
 #viz count_tree_nodes
-#viz add
+#viz nat_add
 
-//
-//
-// fib = make_rec (fn re a b -> $ ($ a (fn n -> re re b (add a b) n)) $) 0 1
-//
-// #num count_tree_nodes fib
-// #num fib 0
-// #num fib 1
-// #num fib 2
-// #num fib 3
-// #num fib 4
-// #num fib 5
-// #num fib 6
-// #num fib 7
-// #num fib 8
-// #num fib 9
-// #num fib 10
-// #num fib 11
-// #num fib 12
-//
-// #num fib (add (fib 9) 2)
-//
-// match = fn w x y z -> $ ($ x y) z w
-// #num count_tree_nodes match
-//
-//
-// infinity = make_rec (fn re x -> succ (make_rec re x))
-// #num count_tree_nodes infinity
-//
-//
-// // inode = $ is_symbol (fork / stem / leaf over inodes)
-// make_inode = $
-//
-// isymbol = make_inode true $
-// tree_to_itree = make_rec (fn re tree ->
-//     match tree
-//         (make_inode false $)                      // leaf -> inode_leaf
-//         (fn u -> make_inode false ($ (re re u)))  // stem(v) -> inode_stem (to_itree v)
-//         (fn lhs rhs -> make_inode false ($ (re re lhs) (re re rhs)))
-// )
-//
-// #show tree_to_itree ($ ($ $ $))
-// #num count_tree_nodes tree_to_itree
-//
-//
-//
-// // basic_simplify = make_rec (fn re tree ->
-// //     // Looking to match:
-// //     // Fork {
-// //     //     lhs1: Stem {
-// //     //         inner: Fork{Leaf, x}
-// //     //     },
-// //     //     rhs1: Fork{Leaf, y}
-// //     // }
-// //     match tree
-// //         $ // Leave leaf untouched
-// //         $ // Leave stem untouched
-// //         (fn lhs1 rhs1 -> match lhs1
-// //              ($$ rhs1)                     // tree.lhs1 => leaf
-// //              (fn inner -> match inner      // tree.lhs1 => stem
-// //                 ($ ($$) rhs1)              //   tree.lhs1.inner => leaf
-// //                 (fn u -> $ ($ ($ u)) rhs1) //   tree.lhs1.inner => stem
-// //                 (fn maybe_leaf maybe_x ->  //   tree.lhs1.inner => fork
-// //                 )
-// //              )
-// //              (fn u v -> $ ($ u v) rhs1)    // tree.lhs1 => fork
-// //         )
-// // )
-//
-//
-// cookie_cutter = (
-//     $ ($ ($$$)) ($$$)
-// )
-//
-// // #show cookie_cutter 3
-// // #show cookie_cutter match
-// #viz match
-//
-//
-//
-// optimized_add = (
-// △ (△ (△ (△ (△ △ △)) (△ (△ △) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ (△ (△ △ (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ △)))) (△ (△ (△
-//  △ (△ (△ (△ △ (△ (△ (△ △ △)))))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ 
-// (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ (△ △)))))) (△ △))))))) (△ (△ (△ △ (△ (△ (△ △ (△ △)))))) (△ △)))))))) (△ △ (△ (△ (△ △ (△ △))) (△ (△ △ △) △))))))))) (△ △
-//  (△ △ (△ (△ △ △) △)))))))))) (△ △ (△ △ △))))) (△ △ (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ △)))) (△ (△ (△ △ (△ (△ (△ △ (△ (△ (△ △ △)))))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ 
-// (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ (△ (△ △ △)) (△ (△ (△ △ △)) (△ (△ (△ △ (△ (△ (△ △ △))))) (△ (△ (△ △ (△ (△ (△ △ △
-// ))))) (△ (△ (△ △ (△ (△ (△ △ (△ △)))))) (△ △))))))) (△ (△ (△ △ (△ (△ (△ △ (△ △)))))) (△ △)))))))) (△ △ (△ (△ (△ △ (△ △))) (△ (△ △ △) △))))))))) (△ △ (△ △ (△ (△ △ △) △)))))))))) (△ △ (△ △ △))))))))) (△ △))))) (△ △ (△ (△ △ △) △)))))
-// )) (△ △ △)
-// )
-// #viz optimized_add
-// #viz add
-//
-// #num count_tree_nodes add
-// #num count_tree_nodes optimized_add
-//
-// #num optimized_add 0 2
-// #num optimized_add 1 0
-// #num optimized_add 2 2
-// #num optimized_add 2 4
-// #num optimized_add 4 2
-// #num optimized_add 3 3
-// #num optimized_add 10 3
-//
-// #num count_tree_nodes fib
-// #viz fib
 
+
+fib = mk_rec3 (fn re a b -> $ ($ a $) (K (re b (nat_add a b)))) nat0 nat1
+
+#num count_tree_nodes fib
+#num fib nat0
+#num fib nat1
+#num fib nat2
+#num fib nat3
+#num fib nat4
+#num fib nat5
+#num fib nat6
+#num fib nat7
+#num fib nat8
+#num fib nat9
+#num fib nat10
+#num fib nat11
+#num fib nat12
+
+b0 = K
+b1 = K id
+bit_not = fn bit -> bit b1 b0
+
+
+nil = $
+cons = $
+
+match_list = fn on_nil on_cons -> $ ($ on_nil $) on_cons
+
+bin_succ = mk_rec1 (fn re ->
+    match_list
+        ($ b1 $)
+        (fn bit rem -> bit ($ b1 rem) ($ b0 (re rem)))
+)
+
+bin0 = $
+bin1 = bin_succ bin0
+bin2 = bin_succ bin1
+bin3 = bin_succ bin2
+bin4 = bin_succ bin3
+bin5 = bin_succ bin4
+bin6 = bin_succ bin5
+bin7 = bin_succ bin6
+bin8 = bin_succ  bin7
+bin9 = bin_succ  bin8
+bin10 = bin_succ bin9
+bin11 = bin_succ bin10
+bin12 = bin_succ bin11
+bin13 = bin_succ bin12
+bin14 = bin_succ bin13
+bin15 = bin_succ bin14
+bin16 = bin_succ bin15
+bin17 = bin_succ bin16
+bin18 = bin_succ bin17
+bin19 = bin_succ bin18
+bin20 = bin_succ bin19
+
+#show bin0
+#show bin1
+#show bin2
+#show bin3
+#show bin4
+#show bin5
+#show bin6
+#show bin7
+
+bin_to_nat = mk_rec2 (fn re base -> 
+    $
+        ($ nat0 $)
+        (fn bit rem -> nat_add (bit nat0 base) (re (nat_add base base) rem))
+) nat1
+
+
+bin_add = mk_rec3 (fn re carry x -> 
+    match_list
+        (carry x (bin_succ x)) // y = 0, if carry 0 => x, else x + 1.
+        (fn b_y y_rem -> 
+            match_list
+                (carry (cons b_y y_rem) (bin_succ (cons b_y y_rem)))
+                (fn b_x x_rem ->
+                    carry
+                        (b_y
+                            (cons b_x (re b0 x_rem y_rem))            // 0 + 0 + b_x
+                            (cons (bit_not b_x) (re b_x x_rem y_rem)) // 0 + 1 + b_x
+                        )
+                        (b_y
+                            (cons (bit_not b_x) (re b_x x_rem y_rem)) // 1 + 0 + b_x
+                            (cons b_x (re b1 x_rem y_rem))            // 1 + 1 + b_x
+                        )
+                )
+            x
+        )
+) b0
+
+#num bin_to_nat bin0
+#num bin_to_nat bin1
+#num bin_to_nat bin2
+#num bin_to_nat bin3
+#num bin_to_nat bin4
+#num bin_to_nat bin5
+#num bin_to_nat bin6
+#num bin_to_nat bin7
+
+
+
+#num bin_to_nat (bin_add bin0 bin0)
+#num bin_to_nat (bin_add bin0 bin1)
+#num bin_to_nat (bin_add bin1 bin0)
+#num bin_to_nat (bin_add bin1 bin1)
+#num bin_to_nat (bin_add bin3 bin2)
+#num bin_to_nat (bin_add bin20 bin20)
+
+#show nat_add nat20 nat20
+bin40 = bin_add bin20 bin20
+#show bin40
+#show b0
+#show b1
+
+#num bin_to_nat bin40
+
+bin_double = fn x -> cons b0 x
+
+#num bin_to_nat (bin_double bin13)
+#num count_tree_nodes bin_double
+
+
+repeat = mk_rec2 fn re f -> match_nat id (fn u -> comp (re f u) f)
+
+hex_00 = repeat (cons b0) nat8 nil
+#show hex_00
+hex_01 = bin_succ bin0
+hex_02 = bin_succ hex_01
+hex_03 = bin_succ hex_02
+hex_04 = bin_succ hex_03
+hex_05 = bin_succ hex_04
+hex_06 = bin_succ hex_05
+hex_07 = bin_succ hex_06
+hex_08 = bin_succ hex_07
+hex_09 = bin_succ hex_08
+hex_0a = bin_succ hex_09
+hex_0b = bin_succ hex_0a
+hex_0c = bin_succ hex_0b
+hex_0d = bin_succ hex_0c
+hex_0e = bin_succ hex_0d
+hex_0f = bin_succ hex_0e
+hex_10 = bin_succ hex_0f
+hex_11 = bin_succ hex_10
+hex_12 = bin_succ hex_11
+hex_13 = bin_succ hex_12
+hex_14 = bin_succ hex_13
+hex_15 = bin_succ hex_14
+hex_16 = bin_succ hex_15
+hex_17 = bin_succ hex_16
+hex_18 = bin_succ hex_17
+hex_19 = bin_succ hex_18
+hex_1a = bin_succ hex_19
+hex_1b = bin_succ hex_1a
+hex_1c = bin_succ hex_1b
+hex_1d = bin_succ hex_1c
+hex_1e = bin_succ hex_1d
+hex_1f = bin_succ hex_1e
+hex_20 = bin_succ hex_1f
+hex_21 = bin_succ hex_20
+hex_22 = bin_succ hex_21
+hex_23 = bin_succ hex_22
+hex_24 = bin_succ hex_23
+hex_25 = bin_succ hex_24
+hex_26 = bin_succ hex_25
+hex_27 = bin_succ hex_26
+hex_28 = bin_succ hex_27
+hex_29 = bin_succ hex_28
+hex_2a = bin_succ hex_29
+hex_2b = bin_succ hex_2a
+hex_2c = bin_succ hex_2b
+hex_2d = bin_succ hex_2c
+hex_2e = bin_succ hex_2d
+hex_2f = bin_succ hex_2e
+hex_30 = bin_succ hex_2f
+hex_31 = bin_succ hex_30
+hex_32 = bin_succ hex_31
+hex_33 = bin_succ hex_32
+hex_34 = bin_succ hex_33
+hex_35 = bin_succ hex_34
+hex_36 = bin_succ hex_35
+hex_37 = bin_succ hex_36
+hex_38 = bin_succ hex_37
+hex_39 = bin_succ hex_38
+hex_3a = bin_succ hex_39
+hex_3b = bin_succ hex_3a
+hex_3c = bin_succ hex_3b
+hex_3d = bin_succ hex_3c
+hex_3e = bin_succ hex_3d
+hex_3f = bin_succ hex_3e
+hex_40 = bin_succ hex_3f
+hex_41 = bin_succ hex_40
+hex_42 = bin_succ hex_41
+hex_43 = bin_succ hex_42
+hex_44 = bin_succ hex_43
+hex_45 = bin_succ hex_44
+hex_46 = bin_succ hex_45
+hex_47 = bin_succ hex_46
+hex_48 = bin_succ hex_47
+hex_49 = bin_succ hex_48
+hex_4a = bin_succ hex_49
+hex_4b = bin_succ hex_4a
+hex_4c = bin_succ hex_4b
+hex_4d = bin_succ hex_4c
+hex_4e = bin_succ hex_4d
+hex_4f = bin_succ hex_4e
+hex_50 = bin_succ hex_4f
+hex_51 = bin_succ hex_50
+hex_52 = bin_succ hex_51
+hex_53 = bin_succ hex_52
+hex_54 = bin_succ hex_53
+hex_55 = bin_succ hex_54
+hex_56 = bin_succ hex_55
+hex_57 = bin_succ hex_56
+hex_58 = bin_succ hex_57
+hex_59 = bin_succ hex_58
+hex_5a = bin_succ hex_59
+hex_5b = bin_succ hex_5a
+hex_5c = bin_succ hex_5b
+hex_5d = bin_succ hex_5c
+hex_5e = bin_succ hex_5d
+hex_5f = bin_succ hex_5e
+hex_60 = bin_succ hex_5f
+hex_61 = bin_succ hex_60
+hex_62 = bin_succ hex_61
+hex_63 = bin_succ hex_62
+hex_64 = bin_succ hex_63
+hex_65 = bin_succ hex_64
+hex_66 = bin_succ hex_65
+hex_67 = bin_succ hex_66
+hex_68 = bin_succ hex_67
+hex_69 = bin_succ hex_68
+hex_6a = bin_succ hex_69
+hex_6b = bin_succ hex_6a
+hex_6c = bin_succ hex_6b
+hex_6d = bin_succ hex_6c
+hex_6e = bin_succ hex_6d
+hex_6f = bin_succ hex_6e
+hex_70 = bin_succ hex_6f
+hex_71 = bin_succ hex_70
+hex_72 = bin_succ hex_71
+hex_73 = bin_succ hex_72
+hex_74 = bin_succ hex_73
+hex_75 = bin_succ hex_74
+hex_76 = bin_succ hex_75
+hex_77 = bin_succ hex_76
+hex_78 = bin_succ hex_77
+hex_79 = bin_succ hex_78
+hex_7a = bin_succ hex_79
+hex_7b = bin_succ hex_7a
+hex_7c = bin_succ hex_7b
+hex_7d = bin_succ hex_7c
+hex_7e = bin_succ hex_7d
+hex_7f = bin_succ hex_7e
+hex_80 = bin_succ hex_7f
+hex_81 = bin_succ hex_80
+hex_82 = bin_succ hex_81
+hex_83 = bin_succ hex_82
+hex_84 = bin_succ hex_83
+hex_85 = bin_succ hex_84
+hex_86 = bin_succ hex_85
+hex_87 = bin_succ hex_86
+hex_88 = bin_succ hex_87
+hex_89 = bin_succ hex_88
+hex_8a = bin_succ hex_89
+hex_8b = bin_succ hex_8a
+hex_8c = bin_succ hex_8b
+hex_8d = bin_succ hex_8c
+hex_8e = bin_succ hex_8d
+hex_8f = bin_succ hex_8e
+hex_90 = bin_succ hex_8f
+hex_91 = bin_succ hex_90
+hex_92 = bin_succ hex_91
+hex_93 = bin_succ hex_92
+hex_94 = bin_succ hex_93
+hex_95 = bin_succ hex_94
+hex_96 = bin_succ hex_95
+hex_97 = bin_succ hex_96
+hex_98 = bin_succ hex_97
+hex_99 = bin_succ hex_98
+hex_9a = bin_succ hex_99
+hex_9b = bin_succ hex_9a
+hex_9c = bin_succ hex_9b
+hex_9d = bin_succ hex_9c
+hex_9e = bin_succ hex_9d
+hex_9f = bin_succ hex_9e
+hex_a0 = bin_succ hex_9f
+hex_a1 = bin_succ hex_a0
+hex_a2 = bin_succ hex_a1
+hex_a3 = bin_succ hex_a2
+hex_a4 = bin_succ hex_a3
+hex_a5 = bin_succ hex_a4
+hex_a6 = bin_succ hex_a5
+hex_a7 = bin_succ hex_a6
+hex_a8 = bin_succ hex_a7
+hex_a9 = bin_succ hex_a8
+hex_aa = bin_succ hex_a9
+hex_ab = bin_succ hex_aa
+hex_ac = bin_succ hex_ab
+hex_ad = bin_succ hex_ac
+hex_ae = bin_succ hex_ad
+hex_af = bin_succ hex_ae
+hex_b0 = bin_succ hex_af
+hex_b1 = bin_succ hex_b0
+hex_b2 = bin_succ hex_b1
+hex_b3 = bin_succ hex_b2
+hex_b4 = bin_succ hex_b3
+hex_b5 = bin_succ hex_b4
+hex_b6 = bin_succ hex_b5
+hex_b7 = bin_succ hex_b6
+hex_b8 = bin_succ hex_b7
+hex_b9 = bin_succ hex_b8
+hex_ba = bin_succ hex_b9
+hex_bb = bin_succ hex_ba
+hex_bc = bin_succ hex_bb
+hex_bd = bin_succ hex_bc
+hex_be = bin_succ hex_bd
+hex_bf = bin_succ hex_be
+hex_c0 = bin_succ hex_bf
+hex_c1 = bin_succ hex_c0
+hex_c2 = bin_succ hex_c1
+hex_c3 = bin_succ hex_c2
+hex_c4 = bin_succ hex_c3
+hex_c5 = bin_succ hex_c4
+hex_c6 = bin_succ hex_c5
+hex_c7 = bin_succ hex_c6
+hex_c8 = bin_succ hex_c7
+hex_c9 = bin_succ hex_c8
+hex_ca = bin_succ hex_c9
+hex_cb = bin_succ hex_ca
+hex_cc = bin_succ hex_cb
+hex_cd = bin_succ hex_cc
+hex_ce = bin_succ hex_cd
+hex_cf = bin_succ hex_ce
+hex_d0 = bin_succ hex_cf
+hex_d1 = bin_succ hex_d0
+hex_d2 = bin_succ hex_d1
+hex_d3 = bin_succ hex_d2
+hex_d4 = bin_succ hex_d3
+hex_d5 = bin_succ hex_d4
+hex_d6 = bin_succ hex_d5
+hex_d7 = bin_succ hex_d6
+hex_d8 = bin_succ hex_d7
+hex_d9 = bin_succ hex_d8
+hex_da = bin_succ hex_d9
+hex_db = bin_succ hex_da
+hex_dc = bin_succ hex_db
+hex_dd = bin_succ hex_dc
+hex_de = bin_succ hex_dd
+hex_df = bin_succ hex_de
+hex_e0 = bin_succ hex_df
+hex_e1 = bin_succ hex_e0
+hex_e2 = bin_succ hex_e1
+hex_e3 = bin_succ hex_e2
+hex_e4 = bin_succ hex_e3
+hex_e5 = bin_succ hex_e4
+hex_e6 = bin_succ hex_e5
+hex_e7 = bin_succ hex_e6
+hex_e8 = bin_succ hex_e7
+hex_e9 = bin_succ hex_e8
+hex_ea = bin_succ hex_e9
+hex_eb = bin_succ hex_ea
+hex_ec = bin_succ hex_eb
+hex_ed = bin_succ hex_ec
+hex_ee = bin_succ hex_ed
+hex_ef = bin_succ hex_ee
+hex_f0 = bin_succ hex_ef
+hex_f1 = bin_succ hex_f0
+hex_f2 = bin_succ hex_f1
+hex_f3 = bin_succ hex_f2
+hex_f4 = bin_succ hex_f3
+hex_f5 = bin_succ hex_f4
+hex_f6 = bin_succ hex_f5
+hex_f7 = bin_succ hex_f6
+hex_f8 = bin_succ hex_f7
+hex_f9 = bin_succ hex_f8
+hex_fa = bin_succ hex_f9
+hex_fb = bin_succ hex_fa
+hex_fc = bin_succ hex_fb
+hex_fd = bin_succ hex_fc
+hex_fe = bin_succ hex_fd
+hex_ff = bin_succ hex_fe
+
+
+mk_prog_input = fn state sender data -> $ ($ state sender) data
+prog_input_get_state =  $ ($$$) (fn lhs rhs -> $ ($$$) K lhs)
+prog_input_get_sender =  $ ($$$) (fn lhs rhs -> $ ($$$) (K id) lhs)
+prog_input_get_data =  $ ($$$) (K id)
+
+// input = mk_prog_input hex_aa hex_bb hex_cc
+// #bytes cons (prog_input_get_state input) nil
+// #bytes cons (prog_input_get_sender input) nil
+// #bytes cons (prog_input_get_data input) nil
+
+
+addr_to_b32 = repeat (cons hex_00) nat12
+
+// :: [a] -> nat -> [a]
+slice_start = mk_rec2 fn re list -> match_nat nil (fn u -> 
+    match_list
+        nil
+        (fn head tail -> cons head (re tail u))
+        list
+)
+
+// :: [a] -> nat -> [a]
+slice_end = mk_rec2 fn re list -> match_nat list (fn u -> 
+    match_list
+        nil
+        (fn head tail -> re tail u)
+        list
+)
+
+concat = mk_rec2 fn re l1 l2 -> (
+    match_list
+        l2
+        (fn head tail -> cons head (re tail l2))
+        l1
+)
+
+
+STOP_OP = hex_00
+SINC_OP = hex_01
+SDEC_OP = hex_02
+SLOAD_OP = hex_03
+
+TX_ENV_ADDR = cons hex_01 nil
+
+// :: new_state -> cmd -> prog_result
+prog_result = fn new_state op cmd_data -> $ new_state ($ op cmd_data)
+prog_result_state = fork_lhs
+prog_result_op = comp fork_lhs fork_rhs
+prog_result_cmd_data = comp fork_rhs fork_rhs
+
+
+CMP_EQ = $
+CMP_LT = $$
+CMP_GT = $$$
+
+cmp_bit = fn x y -> x (y CMP_EQ CMP_LT) (y CMP_GT CMP_EQ)
+cmp_is_eq = $ ($ true (K false)) (K (K false))
+cmp_is_lt = $ ($ false (K true)) (K (K false))
+cmp_is_gt = $ ($ false (K false)) (K (K true))
+cmp_is_le = $ ($ true (K true)) (K (K false))
+cmp_is_ge = $ ($ true (K false)) (K (K true))
+
+// :: bin -> bool
+bin_iszero = mk_rec1 fn re -> match_list true (fn bit tail -> bit (re tail) false)
+
+cmp_bin = mk_rec2 fn cmp_bin x y -> (
+    then x (match_list
+        (if (bin_iszero y) CMP_EQ CMP_LT)
+        (fn x_bit x_tail -> then y (match_list
+            (if (bin_iszero x) CMP_EQ CMP_GT)
+            (fn y_bit y_tail ->
+                then (cmp_bin x_tail y_tail) fn tail_cmp ->
+                    if (cmp_is_eq tail_cmp)
+                        (cmp_bit x_bit y_bit)
+                        tail_cmp
+            )
+        ))
+    )
+)
+
+bin_gt = fn x y -> cmp_is_gt (cmp_bin x y)
+
+
+#show cmp_bin bin0 bin0
+#show cmp_bin bin0 bin1
+#show cmp_bin bin0 bin2
+#show cmp_bin bin0 bin3
+#show cmp_bin (cons b0 (cons b0 nil)) bin4
+#show cmp_bin bin1 bin4
+#show cmp_bin bin1 bin2
+#viz hex_c2
+#viz hex_f1
+#show cmp_bin hex_c2 hex_f1
+#show cmp_bin hex_f1 hex_c2
+
+bin_push_byte = mk_rec2 fn re num -> (
+    match_list
+        num
+        (fn bit rem ->
+            match_list
+                (bit nil (cons b1 nil))
+                (fn head tail -> cons bit (cons head tail))
+                (re num rem)
+        )
+
+)
+
+big_endian_b32_to_bin = (mk_rec2 fn re res -> (
+    match_list
+        res
+        (fn byte rem -> re (bin_push_byte res byte) rem)
+)) nil
+
+read_u256 = fn data -> big_endian_b32_to_bin (slice_start data nat32)
+
+mini_token = fn state msg_sender data -> (
+    then state (
+        // Init
+        $ ($ (
+            then (slice_start data nat20) fn to ->
+            then (read_u256 (slice_end data nat20)) fn amount ->
+            then ($ ($ msg_sender ($ to amount)) nat0) fn new_state ->
+            then (addr_to_b32 msg_sender) fn sender_bal_key ->
+                prog_result new_state SLOAD_OP sender_bal_key
+        )$) (fn state_data ->
+            match_nat (
+                then (fork_lhs state_data) fn from ->
+                then (fork_rhs state_data) fn to_and_amount ->
+                then (fork_rhs to_and_amount) fn amount ->
+                then (read_u256 data) fn from_bal ->
+                if (bin_gt amount from_bal)
+                    (prog_result $ STOP_OP $)
+                    (
+                        then ($ to_and_amount nat1) fn new_state ->
+                        then (addr_to_b32 from) fn sender_bal_key ->
+                        prog_result new_state SDEC_OP ($ sender_bal_key amount)
+                    )
+            ) (match_nat (
+                then (fork_lhs state_data) fn to ->
+                then (fork_rhs state_data) fn amount ->
+                then (addr_to_b32 to) fn to_bal_key ->
+                then ($ $ nat2) fn new_state ->
+                prog_result new_state SINC_OP ($ to_bal_key amount)
+            ) (
+                K (prog_result $ STOP_OP $)
+            ))
+        )
+    )
+)
+
+#num count_tree_nodes mini_token
+
+msg_sender = cons hex_9e (cons hex_37 (cons hex_8c (cons hex_17 (cons hex_a8 (cons hex_54 (cons
+hex_29 (cons hex_40 (cons hex_a9 (cons hex_11 (cons hex_58 (cons hex_cb (cons hex_ac (cons hex_ea
+(cons hex_68 (cons hex_e5 (cons hex_41 (cons hex_bd (cons hex_61 (cons hex_33 nil)))))))))))))))))))
+
+to = cons hex_69 (cons hex_4c (cons hex_af (cons hex_8e (cons hex_cb (cons hex_45 (cons hex_b6 (cons hex_44 (cons hex_fb (cons hex_ec (cons hex_fe (cons hex_e9 (cons hex_8a (cons hex_de (cons hex_38 (cons hex_1f (cons hex_e9 (cons hex_1f (cons hex_6d (cons hex_18 nil)))))))))))))))))))
+
+amount = cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_11 (cons hex_11 (cons hex_d6 (cons hex_7b (cons hex_b1 (cons hex_bb (cons hex_00 (cons hex_00 nil)))))))))))))))))))))))))))))))
+#bytes amount
+
+
+data = concat to amount
+
+sufficient_bal = cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_d3 (cons hex_7f (cons hex_5b (cons hex_41 (cons hex_48 (cons hex_f4 (cons hex_00 (cons hex_00 nil)))))))))))))))))))))))))))))))
+
+insufficient_bal = cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_00 (cons hex_0f (cons hex_67 (cons hex_83 (cons hex_1e (cons hex_74 (cons hex_af (cons hex_00 (cons hex_00 nil)))))))))))))))))))))))))))))))
+
+step1_result = mini_token $ msg_sender data
+#viz step1_result
+step1_state = prog_result_state step1_result
+step1_op = prog_result_op step1_result
+step1_addr = prog_result_cmd_data step1_result
+
+#bytes cons step1_op nil
+#bytes step1_addr
+
+
+step2_result_insufficient = mini_token step1_state TX_ENV_ADDR insufficient_bal
+step2_insufficient_op = prog_result_op step2_result_insufficient
+
+#bytes cons step2_insufficient_op nil
+
+step2_result_sufficient = mini_token step1_state TX_ENV_ADDR sufficient_bal
+step2_sufficient_op = prog_result_op step2_result_sufficient
+step2_sufficient_key = fork_lhs (prog_result_cmd_data step2_result_sufficient)
+step2_sufficient_delta = fork_rhs (prog_result_cmd_data step2_result_sufficient)
+
+#bytes cons step2_sufficient_op nil
+#bytes step2_sufficient_key
+#viz step2_sufficient_delta
+
+#show b0
+#show b1
+
+step3_result = mini_token (prog_result_state step2_result_sufficient) TX_ENV_ADDR nil
+step3_op = prog_result_op step3_result
+step3_key = fork_lhs (prog_result_cmd_data step3_result)
+step3_delta = fork_rhs (prog_result_cmd_data step3_result)
+step3_state = prog_result_state step3_result
+
+#bytes cons step3_op nil
+#bytes step3_key
+
+#num bool_to_nat (tree_eq step3_delta step2_sufficient_delta)
+
+step4_result = mini_token step3_state TX_ENV_ADDR nil
+
+step4_op = prog_result_op step4_result
+step4_state = prog_result_state step4_result
+
+#bytes cons step4_op nil
+#show prog_result_cmd_data step4_result

@@ -143,6 +143,7 @@ fn parse_tree_expr<'src>(
 pub enum Declaration<'src> {
     TreeDecl(TreeDecl<'src>),
     NumEval(TreeExpr<'src>),
+    Bytes(TreeExpr<'src>),
     Show(TreeExpr<'src>),
     Visualize((&'src str, Span)),
 }
@@ -180,6 +181,11 @@ pub fn parse_decl<'src>(lexer: &mut Lexer<'src>) -> Result<Declaration<'src>, Er
             let expr = parse_tree_expr(lexer, false)?;
             Ok(Declaration::NumEval(expr))
         }
+        (Token::Bytes, _) => {
+            lexer.next();
+            let expr = parse_tree_expr(lexer, false)?;
+            Ok(Declaration::Bytes(expr))
+        }
         (Token::Show, _) => {
             lexer.next();
             let expr = parse_tree_expr(lexer, false)?;
@@ -193,15 +199,20 @@ pub fn parse_decl<'src>(lexer: &mut Lexer<'src>) -> Result<Declaration<'src>, Er
             };
             Ok(Declaration::Visualize((name, span)))
         }
-        (tok, span) => Err((format!("Unexpected token <{tok:?}>, expected <name>"), span)),
+        (tok, span) => Err((
+            format!("Unexpected token <{tok:?}>, expected <name> / directive"),
+            span,
+        )),
     }
 }
 
 pub fn parse_declarations<'src>(lexer: &mut Lexer<'src>) -> Result<Vec<Declaration<'src>>, Error> {
     let mut decls = Vec::with_capacity(128);
 
-    while let (Token::Identifier(_) | Token::Num | Token::Visualize | Token::Show, _) =
-        lexer.peek_skip_newline()
+    while let (
+        Token::Identifier(_) | Token::Num | Token::Visualize | Token::Show | Token::Bytes,
+        _,
+    ) = lexer.peek_skip_newline()
     {
         decls.push(parse_decl(lexer)?);
     }

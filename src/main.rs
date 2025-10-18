@@ -107,6 +107,25 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            Declaration::Bytes(expr) => {
+                let compiled = compile_tree_expr(&mut trees, expr);
+                let resulting_tree = match namespace.eval_tree(&mut trees, &compiled) {
+                    Ok(result) => result,
+                    Err((reason, span)) => {
+                        pretty_err(&source, reason, span, true);
+                        std::process::exit(1);
+                    }
+                };
+                match trees.parse_bytes(resulting_tree) {
+                    Ok(bytes) => println!("{expr} => 0x{}", hex::encode(bytes)),
+                    Err(tree_idx) => {
+                        eprintln!(
+                            "{expr} => (not bytes: {})",
+                            trees.as_ref(trees.index(tree_idx))
+                        )
+                    }
+                }
+            }
             Declaration::NumEval(expr) => {
                 let compiled = compile_tree_expr(&mut trees, expr);
                 let resulting_tree = match namespace.eval_tree(&mut trees, &compiled) {
@@ -116,7 +135,7 @@ fn main() {
                         std::process::exit(1);
                     }
                 };
-                match trees.parse_stem_nat(resulting_tree) {
+                match trees.parse_fork_nat(resulting_tree) {
                     Ok(x) => println!("{expr} => {x}"),
                     Err(tree_idx) => {
                         eprintln!(

@@ -210,6 +210,7 @@ impl Trees {
     pub const STEM_LEAF: TreeIndex = TreeIndex::from_idx(1);
     pub const FORK_LEAF_LEAF: TreeIndex = TreeIndex::from_idx(2);
     pub const IDENTITY: TreeIndex = TreeIndex::from_idx(3);
+    pub const BIT1: TreeIndex = TreeIndex::from_idx(4);
 
     pub fn new(tree_capacity: usize, application_cache_size: usize) -> Self {
         let mut trees = Self {
@@ -238,6 +239,12 @@ impl Trees {
         assert_eq!(
             trees.insert(Tree::Fork(Self::FORK_LEAF_LEAF, Self::LEAF)),
             Self::IDENTITY
+        );
+
+        // △ △ (△ (△ △ △) △)
+        assert_eq!(
+            trees.insert(Tree::Fork(Self::LEAF, Self::IDENTITY)),
+            Self::BIT1
         );
 
         trees
@@ -345,6 +352,60 @@ impl Trees {
         }
     }
 
+    pub fn parse_bytes(&self, start: TreeIndex) -> Result<Vec<u8>, TreeIndex> {
+        self.parse_list(start, |l| self.parse_byte(l).ok())
+    }
+
+    pub fn parse_bit(&self, bit: TreeIndex) -> Result<bool, TreeIndex> {
+        match bit {
+            Trees::STEM_LEAF => Ok(false),
+            Trees::BIT1 => Ok(true),
+            _ => Err(bit),
+        }
+    }
+
+    pub fn parse_byte(&self, start: TreeIndex) -> Result<u8, TreeIndex> {
+        let mut tree = start;
+        let mut i = 0u8;
+        let mut byte = 0u8;
+        loop {
+            match self.index(tree) {
+                Tree::Leaf => return Ok(byte),
+                Tree::Stem(_) => return Err(start),
+                Tree::Fork(bit, rem_tree) => {
+                    if i > 7 {
+                        return Err(start);
+                    }
+                    byte |= (self.parse_bit(bit)? as u8) << i;
+                    i += 1;
+                    tree = rem_tree;
+                }
+            }
+        }
+    }
+
+    pub fn parse_list<P, I>(
+        &self,
+        start: TreeIndex,
+        mut parse_element: P,
+    ) -> Result<Vec<I>, TreeIndex>
+    where
+        P: FnMut(TreeIndex) -> Option<I>,
+    {
+        let mut elements = Vec::with_capacity(256);
+        let mut tree = start;
+        loop {
+            match self.index(tree) {
+                Tree::Leaf => return Ok(elements),
+                Tree::Stem(_) => return Err(start),
+                Tree::Fork(element, rem_tree) => {
+                    elements.push(parse_element(element).ok_or(start)?);
+                    tree = rem_tree;
+                }
+            }
+        }
+    }
+
     pub fn parse_fork_nat(&self, start: TreeIndex) -> Result<u64, TreeIndex> {
         let mut tree = start;
         let mut x = 0;
@@ -368,7 +429,7 @@ impl Trees {
         // println!("    ===== b =====\n    {}", self.as_ref(self.index(b)));
         let idx = self.tree_apply_inner(a, b);
         if self.iters > 100_000 {
-            println!("eval took {} steps", self.iters);
+            println!("  !! eval took {} steps", self.iters);
         }
         self.cached_applications.clear();
         idx

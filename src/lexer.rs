@@ -38,6 +38,8 @@ pub enum Token<'src> {
     Show,
     #[token("#viz")]
     Visualize,
+    #[token("#bytes")]
+    Bytes,
 
     Error,
     Eof,
