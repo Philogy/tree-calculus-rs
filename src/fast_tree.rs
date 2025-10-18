@@ -9,6 +9,7 @@ pub struct TreeIndex {
 }
 
 const MAX_TREE_APPLY_ITERS: usize = 1_000_000_000;
+const GC_THRESHOLD: f32 = 0.20;
 
 impl TreeIndex {
     #[inline]
@@ -23,6 +24,7 @@ impl TreeIndex {
 
     #[inline]
     const fn from_idx(i: usize) -> Self {
+        debug_assert!(i < u32::MAX as usize);
         TreeIndex {
             idx: unsafe { NonZero::new_unchecked(i as u32 + 1) },
         }
@@ -210,8 +212,38 @@ pub struct Trees {
     cached_applications: HashMap<(TreeIndex, TreeIndex), TreeIndex, RandomState>,
     trees: Vec<TreeStoreEntry>,
     next_free: usize,
+    total_free: usize,
     eval_stack: Vec<TreeEvalFrame>,
     iters: usize,
+}
+
+fn bitmap_get_alive(alive_bitmap: &[usize], idx: usize) -> bool {
+    let field = idx / (usize::BITS as usize);
+    let offset = idx % (usize::BITS as usize);
+    (alive_bitmap[field] & (1 << offset)) != 0
+}
+
+#[derive(Debug)]
+pub struct DeadTreesIter {
+    alive_bitmap: Box<[usize]>,
+    next_idx: usize,
+    end_idx: usize,
+}
+
+impl Iterator for DeadTreesIter {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.next_idx < self.end_idx {
+            let idx = self.next_idx;
+            self.next_idx += 1;
+            if !bitmap_get_alive(&self.alive_bitmap, idx) {
+                return Some(idx);
+            }
+        }
+
+        return None;
+    }
 }
 
 impl Trees {
@@ -220,6 +252,8 @@ impl Trees {
     pub const FORK_LEAF_LEAF: TreeIndex = TreeIndex::from_idx(2);
     pub const IDENTITY: TreeIndex = TreeIndex::from_idx(3);
     pub const BIT1: TreeIndex = TreeIndex::from_idx(4);
+
+    pub const CONSTANT_TREES: usize = 5;
 
     pub const MAX_TREE_IDX_TO_BE_CACHED: usize = 50_000;
 
@@ -231,6 +265,7 @@ impl Trees {
                 Default::default(),
             ),
             next_free: 0,
+            total_free: 0,
             trees: Vec::with_capacity(tree_capacity),
             eval_stack: Vec::with_capacity(256),
             iters: 0,
@@ -258,6 +293,11 @@ impl Trees {
             Self::BIT1
         );
 
+        assert_eq!(
+            Self::CONSTANT_TREES,
+            trees.trees.len(),
+            "Forgot to keep CONSTANT_TREES in sync with constant trees"
+        );
         trees
     }
 
@@ -272,7 +312,8 @@ impl Trees {
 
     fn push_and_index(&mut self, tree: Tree) -> TreeIndex {
         let tree = tree.into();
-        let idx = TreeIndex::from_idx(self.trees.len());
+        let idx = TreeIndex::from_idx(self.next_free);
+        debug_assert!(self.next_free <= self.trees.len());
         if self.next_free == self.trees.len() {
             self.trees.push(tree);
             self.next_free += 1;
@@ -282,6 +323,7 @@ impl Trees {
             debug_assert!(next_free.is_some(), "Free entry not free");
             self.trees[self.next_free] = tree;
             self.next_free = unsafe { next_free.unwrap_unchecked() }.idx();
+            self.total_free -= 1;
         }
         self.indexed_trees.insert(tree, idx);
         idx
@@ -329,22 +371,71 @@ impl Trees {
         }
     }
 
-    pub fn count_non_garbage(&self, alive: impl Iterator<Item = TreeIndex>) -> usize {
-        let mut tree_alive = vec![false; self.trees.len()];
-        let mut todo_stack: Vec<_> = alive.into_iter().collect();
+    pub fn total_free(&self) -> usize {
+        self.total_free
+    }
+
+    pub fn collect_garbage(&mut self, in_use: impl Iterator<Item = TreeIndex>) {
+        if (self.total_free as f32) / (self.trees.len() as f32) > GC_THRESHOLD {
+            return;
+        }
+
+        let free_indices = self.get_dead(in_use).chain([self.trees.len()].into_iter());
+        let mut last_free_idx = 0;
+        self.total_free = 0;
+        for (i, to_be_freed) in free_indices.enumerate() {
+            if to_be_freed < self.trees.len() {
+                let entry = self.trees[to_be_freed];
+                if Tree::try_from(entry).is_ok() {
+                    self.indexed_trees.remove(&entry);
+                }
+            }
+
+            if i == 0 {
+                self.next_free = to_be_freed;
+            } else {
+                self.trees[last_free_idx] =
+                    TreeStoreEntry::free_entry(TreeIndex::from_idx(to_be_freed));
+                self.total_free += 1;
+            }
+            last_free_idx = to_be_freed;
+        }
+    }
+
+    pub fn get_dead(&self, in_use: impl Iterator<Item = TreeIndex>) -> DeadTreesIter {
+        let bitmap_fields = self.trees.len().div_ceil(usize::BITS as usize);
+        let mut tree_alive_bitmap = vec![0usize; bitmap_fields].into_boxed_slice();
+        let mut todo_stack: Vec<_> = Vec::new();
+        for not_freeing in in_use {
+            todo_stack.push(not_freeing);
+        }
+
+        fn set_alive(alive_bitmap: &mut [usize], idx: usize) {
+            let field = idx / (usize::BITS as usize);
+            let offset = idx % (usize::BITS as usize);
+            alive_bitmap[field] |= 1 << offset;
+        }
+
+        for i in 0..Self::CONSTANT_TREES {
+            set_alive(&mut tree_alive_bitmap, i);
+        }
 
         while let Some(idx) = todo_stack.pop() {
             let iidx = idx.idx();
-            if tree_alive[iidx] {
+            if bitmap_get_alive(&tree_alive_bitmap, iidx) {
                 continue;
             }
-            tree_alive[iidx] = true;
+            set_alive(&mut tree_alive_bitmap, iidx);
             for child in self.index(idx).iter_children() {
                 todo_stack.push(child);
             }
         }
 
-        tree_alive.into_iter().filter(|b| *b).count()
+        DeadTreesIter {
+            alive_bitmap: tree_alive_bitmap,
+            next_idx: 0,
+            end_idx: self.trees.len(),
+        }
     }
 
     pub fn parse_stem_nat(&self, start: TreeIndex) -> Result<u64, TreeIndex> {
@@ -450,9 +541,6 @@ impl Trees {
 
     pub fn tree_apply(&mut self, a: TreeIndex, b: TreeIndex) -> TreeIndex {
         self.iters = 0;
-        // println!("tree_apply");
-        // println!("    ===== a =====\n    {}", self.as_ref(self.index(a)));
-        // println!("    ===== b =====\n    {}", self.as_ref(self.index(b)));
         let idx = self.tree_apply_inner(a, b);
         if self.iters > 100_000 {
             println!("  !! eval took {} steps", self.iters);
@@ -466,9 +554,6 @@ impl Trees {
 
         'apply: loop {
             self.iters += 1;
-            // if iters % 100_000 == 0 {
-            //     println!("tree_apply_inner {}", iters);
-            // }
 
             if self.iters >= MAX_TREE_APPLY_ITERS {
                 let slice_start = self.eval_stack.len().saturating_sub(30);
@@ -525,7 +610,6 @@ impl Trees {
             'unwind_stack: loop {
                 match self.eval_stack.pop() {
                     None => {
-                        // println!("self.eval_stack.len(): {:?}", self.eval_stack.len());
                         return result;
                     }
                     Some(TreeEvalFrame {
@@ -563,13 +647,6 @@ impl Trees {
                         fork_partial: None,
                         duplicate_end: None,
                     }) => {
-                        // let (a, b) = input_to_cache;
-                        // println!(
-                        //     "({}) ({}) => {}",
-                        //     self.as_ref(self.index(a)),
-                        //     self.as_ref(self.index(b)),
-                        //     self.as_ref(self.index(result))
-                        // );
                         self.update_application_cache(input_to_cache, result);
                         continue 'unwind_stack;
                     }
@@ -585,6 +662,7 @@ impl Trees {
     pub fn report_final_usage(&self) {
         println!("self.trees.capacity(): {:?}", self.trees.capacity());
         println!("self.trees.len(): {:?}", self.trees.len());
+        println!("self.total_free: {:?}", self.total_free);
         println!("self.indexed_trees.len(): {:?}", self.indexed_trees.len());
         println!(
             "self.cached_applications.capacity(): {:?}",

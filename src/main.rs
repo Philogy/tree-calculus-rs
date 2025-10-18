@@ -78,8 +78,29 @@ fn visualize_tree(buf: &mut String, trees: &Trees, name: &str, tree: TreeIndex) 
     write!(buf, "}}").unwrap();
 }
 
+fn parse_args() -> (String, bool, bool) {
+    let mut args = std::env::args();
+    args.next();
+    let path = args.next().expect("missing path");
+    let mut verbose = false;
+    let mut garbage_collected = false;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--verbose" | "-v" => verbose = true,
+            "--gc" | "-g" => garbage_collected = true,
+            arg => {
+                panic!(
+                    "Unrecognized flag: {}, expected [PATH] [--gc | -g] [--verbose | -v]",
+                    arg
+                )
+            }
+        }
+    }
+    (path, verbose, garbage_collected)
+}
+
 fn main() {
-    let path = std::env::args().nth(1).expect("missing path");
+    let (path, verbose, garbage_collected) = parse_args();
     let source = std::fs::read_to_string(path).expect("reading file failed");
 
     let mut lexer = Lexer::new(&source);
@@ -94,12 +115,21 @@ fn main() {
     let mut namespace = TreeNamespace::new();
 
     let mut buf = String::with_capacity(4096 * 8);
-    let mut trees = Trees::new(1_000_000, 10_000);
+    let mut trees = Trees::new(4000, 10_000);
 
     for decl in decls.iter() {
+        if verbose {
+            println!("processing decl {:?}", decl);
+        }
         match decl {
             Declaration::TreeDecl(decl) => {
+                if verbose {
+                    println!("   ...compiling {:?}", decl.name);
+                }
                 let compiled = compile_tree_expr(&mut trees, &decl.expr);
+                if verbose {
+                    println!("   ...evaluating {:?}", compiled);
+                }
                 if let Err((reason, span)) =
                     namespace.define_new_tree(&mut trees, decl.name, decl.span.clone(), &compiled)
                 {
@@ -167,20 +197,24 @@ fn main() {
                 std::fs::write(format!("trees/{}.dot", name), &buf).unwrap();
             }
         }
+
+        if garbage_collected {
+            trees.collect_garbage(namespace.iter_trees());
+        }
     }
 
     println!("\n==== TREE STATS ====");
     trees.report_final_usage();
-    let non_garbage = trees.count_non_garbage(namespace.iter_trees());
+    let garbage = trees.get_dead(namespace.iter_trees()).count() - trees.total_free();
     let total_trees = trees.total_trees_stored();
     println!(
         "non garbage trees: {} ({:.2}%)",
-        non_garbage,
-        (non_garbage as f32) / (total_trees as f32) * 100.0
+        (total_trees - garbage),
+        ((total_trees - garbage) as f32) / (total_trees as f32) * 100.0
     );
     println!(
         "garbage trees: {} ({:.2}%)",
-        total_trees - non_garbage,
-        (total_trees - non_garbage) as f32 / (total_trees as f32) * 100.0
+        garbage,
+        garbage as f32 / (total_trees as f32) * 100.0
     );
 }
