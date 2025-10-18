@@ -1,4 +1,4 @@
-use crate::fast_tree::{Tree, TreeIndex, Trees};
+use crate::fast_tree::{TreeIndex, Trees};
 use crate::{ParserError, Span, TreeExpr, TreeLambda};
 use std::{collections::HashMap, fmt};
 

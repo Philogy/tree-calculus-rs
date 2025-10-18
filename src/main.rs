@@ -2,7 +2,7 @@ use std::io::Write;
 
 use tree_calculus::{
     Declaration, Lexer, Span, Tree, TreeIndex, TreeNamespace, Trees, compile_tree_expr,
-    optimizations, parse_declarations,
+    parse_declarations,
 };
 
 fn pretty_err<'src>(source: &'src str, reason: String, span: Span, with_line_number: bool) {
@@ -118,17 +118,15 @@ fn main() {
     let mut trees = Trees::new(4000, 10_000);
 
     for decl in decls.iter() {
-        if verbose {
-            println!("processing decl {:?}", decl);
-        }
         match decl {
             Declaration::TreeDecl(decl) => {
                 if verbose {
+                    println!("Processing TreeDecl({:?})", decl.name);
                     println!("   ...compiling {:?}", decl.name);
                 }
                 let compiled = compile_tree_expr(&mut trees, &decl.expr);
                 if verbose {
-                    println!("   ...evaluating {:?}", compiled);
+                    println!("   ...evaluating {}", compiled);
                 }
                 if let Err((reason, span)) =
                     namespace.define_new_tree(&mut trees, decl.name, decl.span.clone(), &compiled)
@@ -138,7 +136,14 @@ fn main() {
                 }
             }
             Declaration::Bytes(expr) => {
+                if verbose {
+                    println!("Processing Bytes");
+                    println!("   ...compiling");
+                }
                 let compiled = compile_tree_expr(&mut trees, expr);
+                if verbose {
+                    println!("   ...evaluating");
+                }
                 let resulting_tree = match namespace.eval_tree(&mut trees, &compiled) {
                     Ok(result) => result,
                     Err((reason, span)) => {
@@ -157,7 +162,14 @@ fn main() {
                 }
             }
             Declaration::NumEval(expr) => {
+                if verbose {
+                    println!("Processing NumEval");
+                    println!("   ...compiling");
+                }
                 let compiled = compile_tree_expr(&mut trees, expr);
+                if verbose {
+                    println!("   ...evaluating");
+                }
                 let resulting_tree = match namespace.eval_tree(&mut trees, &compiled) {
                     Ok(result) => result,
                     Err((reason, span)) => {
@@ -176,7 +188,14 @@ fn main() {
                 }
             }
             Declaration::Show(expr) => {
+                if verbose {
+                    println!("Processing Show");
+                    println!("   ...compiling");
+                }
                 let compiled = compile_tree_expr(&mut trees, expr);
+                if verbose {
+                    println!("   ...evaluating");
+                }
                 print!("{} =>", expr);
                 std::io::stdout().flush().unwrap();
                 let resulting_tree = match namespace.eval_tree(&mut trees, &compiled) {
@@ -189,15 +208,24 @@ fn main() {
                 println!(" {}", trees.as_ref(trees.index(resulting_tree)));
             }
             Declaration::Visualize((name, span)) => {
+                if verbose {
+                    println!("Processing Visualize");
+                }
                 let Some(tree) = namespace.get(name) else {
                     pretty_err(&source, format!("Undefined {:?}", name), span.clone(), true);
                     std::process::exit(1);
                 };
+                if verbose {
+                    println!("  ...visualizing {}", name);
+                }
                 visualize_tree(&mut buf, &trees, name, tree);
                 std::fs::write(format!("trees/{}.dot", name), &buf).unwrap();
             }
         }
 
+        if verbose {
+            trees.report_garbage(namespace.iter_trees());
+        }
         if garbage_collected {
             trees.collect_garbage(namespace.iter_trees());
         }

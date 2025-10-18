@@ -9,7 +9,7 @@ pub struct TreeIndex {
 }
 
 const MAX_TREE_APPLY_ITERS: usize = 1_000_000_000;
-const GC_THRESHOLD: f32 = 0.20;
+const MIN_FREE_GC_THRESHOLD: f32 = 0.20;
 
 impl TreeIndex {
     #[inline]
@@ -376,7 +376,7 @@ impl Trees {
     }
 
     pub fn collect_garbage(&mut self, in_use: impl Iterator<Item = TreeIndex>) {
-        if (self.total_free as f32) / (self.trees.len() as f32) > GC_THRESHOLD {
+        if (self.total_free as f32) / (self.trees.len() as f32) > MIN_FREE_GC_THRESHOLD {
             return;
         }
 
@@ -671,6 +671,18 @@ impl Trees {
         println!(
             "self.eval_stack.capacity(): {:?}",
             self.eval_stack.capacity()
+        );
+    }
+
+    pub fn report_garbage(&self, in_use: impl Iterator<Item = TreeIndex>) {
+        let unused = self.get_dead(in_use).count();
+        let garbage = unused - self.total_free();
+        let total_trees = self.total_trees_stored() as f32;
+        println!(
+            "    unused: {:.2}%   | uncollected: {:.2}%  | capacity: {}",
+            unused as f32 / (total_trees as f32) * 100.0,
+            garbage as f32 / (total_trees as f32) * 100.0,
+            self.trees.capacity()
         );
     }
 
