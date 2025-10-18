@@ -4,19 +4,28 @@ use std::fmt;
 use std::num::NonZero;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TreeIndex(NonZero<u32>);
+pub struct TreeIndex {
+    idx: NonZero<u32>,
+}
 
 const MAX_TREE_APPLY_ITERS: usize = 1_000_000_000;
 
 impl TreeIndex {
     #[inline]
+    pub const fn get(&self) -> u32 {
+        self.idx.get() - 1
+    }
+
+    #[inline]
     pub const fn idx(&self) -> usize {
-        (self.0.get() - 1) as usize
+        (self.idx.get() - 1) as usize
     }
 
     #[inline]
     const fn from_idx(i: usize) -> Self {
-        TreeIndex(unsafe { NonZero::new_unchecked(i as u32 + 1) })
+        TreeIndex {
+            idx: unsafe { NonZero::new_unchecked(i as u32 + 1) },
+        }
     }
 }
 
@@ -65,8 +74,8 @@ impl TreeStoreEntry {
 
     #[inline]
     fn to_u64(self) -> u64 {
-        let lhs = self.lhs_or_free_entry.map_or(0, |x| x.0.get());
-        let rhs = self.rhs_or_stem.map_or(0, |x| x.0.get());
+        let lhs = self.lhs_or_free_entry.map_or(0, |x| x.get());
+        let rhs = self.rhs_or_stem.map_or(0, |x| x.get());
         (lhs as u64) | ((rhs as u64) << 32)
     }
 }
@@ -211,6 +220,8 @@ impl Trees {
     pub const FORK_LEAF_LEAF: TreeIndex = TreeIndex::from_idx(2);
     pub const IDENTITY: TreeIndex = TreeIndex::from_idx(3);
     pub const BIT1: TreeIndex = TreeIndex::from_idx(4);
+
+    pub const MAX_TREE_IDX_TO_BE_CACHED: usize = 50_000;
 
     pub fn new(tree_capacity: usize, application_cache_size: usize) -> Self {
         let mut trees = Self {
@@ -422,6 +433,21 @@ impl Trees {
         }
     }
 
+    fn update_application_cache(&mut self, input: (TreeIndex, TreeIndex), output: TreeIndex) {
+        let (a, _) = input;
+        if a.idx() > Self::MAX_TREE_IDX_TO_BE_CACHED {
+            return;
+        }
+        self.cached_applications.insert(input, output);
+    }
+
+    fn query_application_cache(&self, a: TreeIndex, b: TreeIndex) -> Option<TreeIndex> {
+        if a.idx() > Self::MAX_TREE_IDX_TO_BE_CACHED {
+            return None;
+        }
+        self.cached_applications.get(&(a, b)).copied()
+    }
+
     pub fn tree_apply(&mut self, a: TreeIndex, b: TreeIndex) -> TreeIndex {
         self.iters = 0;
         // println!("tree_apply");
@@ -465,7 +491,7 @@ impl Trees {
                     (Tree::Leaf, a) => a,
                     // △ (△ x) y b = x b (y b)
                     (Tree::Stem(x), y) => {
-                        let Some(&result) = self.cached_applications.get(&(a, b)) else {
+                        let Some(result) = self.query_application_cache(a, b) else {
                             let frame = TreeEvalFrame::duplicate_middle_eval((a, b), y, b);
                             self.eval_stack.push(frame);
                             a = x; // Evaluate `x b`, push `(_ (y b))`.
@@ -477,7 +503,7 @@ impl Trees {
                     (Tree::Fork(a1, a2), a3) => match self.index(b) {
                         Tree::Leaf => a1,
                         Tree::Stem(u) => {
-                            let Some(&result) = self.cached_applications.get(&(a, b)) else {
+                            let Some(result) = self.query_application_cache(a, b) else {
                                 self.eval_stack.push(TreeEvalFrame::just_cache((a, b)));
                                 (a, b) = (a2, u); // Evaluate `a2 u`.
                                 continue;
@@ -485,7 +511,7 @@ impl Trees {
                             result
                         }
                         Tree::Fork(u, v) => {
-                            let Some(&result) = self.cached_applications.get(&(a, b)) else {
+                            let Some(result) = self.query_application_cache(a, b) else {
                                 self.eval_stack.push(TreeEvalFrame::fork_partial((a, b), v));
                                 (a, b) = (a3, u); // Evaluate `a3 u`, push `_ v`
                                 continue;
@@ -544,7 +570,7 @@ impl Trees {
                         //     self.as_ref(self.index(b)),
                         //     self.as_ref(self.index(result))
                         // );
-                        self.cached_applications.insert(input_to_cache, result);
+                        self.update_application_cache(input_to_cache, result);
                         continue 'unwind_stack;
                     }
                 }
@@ -557,6 +583,7 @@ impl Trees {
     }
 
     pub fn report_final_usage(&self) {
+        println!("self.trees.capacity(): {:?}", self.trees.capacity());
         println!("self.trees.len(): {:?}", self.trees.len());
         println!("self.indexed_trees.len(): {:?}", self.indexed_trees.len());
         println!(
